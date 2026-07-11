@@ -1,0 +1,13 @@
+__pycache__/
+*.pyc
+*.egg-info/
+build/
+dist/
+.pytest_cache/
+# LaTeX build residue
+*.aux
+*.log
+*.synctex.gz
+# generated outputs
+accessible/
+accessible_out/

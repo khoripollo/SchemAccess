@@ -1,0 +1,79 @@
+{
+  "rc_divider.kicad_sch": {
+    "components": 4,
+    "nets": 3,
+    "ground": true,
+    "power_symbols": 3,
+    "description": "V1 5V source feeding series R1 20 into R2 100 parallel C1 22nF to ground."
+  },
+  "voltage_divider.kicad_sch": {
+    "components": 2,
+    "nets": 3,
+    "ground": true,
+    "power_symbols": 2,
+    "description": "+5V rail through equal R1/R2 10k divider to GND with local label VOUT at the midpoint."
+  },
+  "rc_filter.kicad_sch": {
+    "components": 2,
+    "nets": 3,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "Classic RC low-pass: global label IN, series R1 1k, shunt C1 100nF to GND, global label OUT."
+  },
+  "rlc_series.kicad_sch": {
+    "components": 4,
+    "nets": 4,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "Sine source V1 driving R1 100, L1 10mH and C1 1uF in a single series loop to GND."
+  },
+  "led_battery.kicad_sch": {
+    "components": 3,
+    "nets": 3,
+    "ground": false,
+    "power_symbols": 0,
+    "description": "Battery BT1 9V through R1 470 into LED D1 anode, cathode back to battery minus; no ground symbol."
+  },
+  "opamp_inverting.kicad_sch": {
+    "components": 3,
+    "nets": 4,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "Inverting op-amp: VIN via R1 10k to inverting input, R2 100k feedback, + input grounded, output VOUT."
+  },
+  "wheatstone.kicad_sch": {
+    "components": 5,
+    "nets": 4,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "V1 10V driving a four-resistor 1k bridge with local labels A and B on the midpoints, bottom to GND."
+  },
+  "logic_gates.kicad_sch": {
+    "components": 2,
+    "nets": 5,
+    "ground": false,
+    "power_symbols": 0,
+    "description": "74LS08 AND gate feeding one input of a 74LS32 OR gate: Y = (A AND B) OR C, all ports global labels."
+  },
+  "hier_parent.kicad_sch": {
+    "components": 2,
+    "nets": 2,
+    "ground": true,
+    "power_symbols": 2,
+    "description": "Parent sheet: V1 5V wired to sheet pin SIG of hier_child.kicad_sch; counts are for the flattened hierarchy."
+  },
+  "hier_child.kicad_sch": {
+    "components": 1,
+    "nets": 2,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "Child sheet parsed standalone: hierarchical label SIG through R1 1k to GND."
+  },
+  "big_200.kicad_sch": {
+    "components": 200,
+    "nets": 102,
+    "ground": true,
+    "power_symbols": 100,
+    "description": "Generated 100-stage RC ladder (100 series R, 100 shunt C, one GND per stage) for performance testing."
+  }
+}

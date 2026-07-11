@@ -316,6 +316,9 @@ def node_names(graph: CircuitGraph) -> Dict[int, str]:
                 names[net.net_id] = f"node {counter} ({net.name})"
             else:
                 names[net.net_id] = f"node {counter}"
+        elif net.kind == NetKind.NAMED:
+            # A labelled single-pin net is an external port, not a mistake.
+            names[net.net_id] = f"the {net.name} terminal"
         else:
             names[net.net_id] = f"an unconnected point ({net.name})"
     return names
