@@ -1,0 +1,5 @@
+[console_scripts]
+schemaccess = schemaccess.cli:main
+
+[gui_scripts]
+schemaccess-gui = schemaccess.gui.app:main
