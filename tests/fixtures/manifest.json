@@ -1,4 +1,11 @@
 {
+  "sim_spice_opamp.kicad_sch": {
+    "components": 4,
+    "nets": 6,
+    "ground": true,
+    "power_symbols": 2,
+    "description": "KiCad 10 Simulation_SPICE symbols: OPAMP with '+' input on TOP and unnamed-pin VDC (polarity only in Sim.Pins); regression for orientation/polarity handling."
+  },
   "rc_divider.kicad_sch": {
     "components": 4,
     "nets": 3,

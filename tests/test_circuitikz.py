@@ -333,3 +333,48 @@ def test_com2_identifiers_and_values_preserved(name: str, load) -> None:
             assert expected in body, (
                 f"{name}: value annotation '{expected}' of {ref} "
                 f"(raw '{comp.value}') missing from .tex")
+
+
+# ---------------------------------------------------------------------------
+# FUN-4/FUN-5 regression: KiCad 10 Simulation_SPICE symbols
+# (sim_spice_opamp.kicad_sch: OPAMP has its '+' input on TOP; the VDC
+# source has unnamed pins, polarity only in the Sim.Pins property).
+# ---------------------------------------------------------------------------
+
+def _sim_spice_tex() -> str:
+    from conftest import load_graph
+    return circuitikz.generate(load_graph("sim_spice_opamp.kicad_sch"))
+
+
+def test_fun4_opamp_noninverting_input_up_matches_kicad():
+    """The op amp node must flip so '+' is on top, like the KiCad symbol."""
+    tex = _sim_spice_tex()
+    assert "op amp, noinv input up" in tex
+
+
+def test_fun4_source_polarity_from_sim_pins():
+    """Unnamed-pin VDC: pin 1 ('+' per Sim.Pins) is the TOP pin, and the
+    circuitikz V bipole puts '+' at the SECOND coordinate - so the draw
+    direction must run bottom-to-top (second y > first y)."""
+    tex = _sim_spice_tex()
+    v_lines = [ln for ln in tex.splitlines() if "to[V," in ln]
+    assert len(v_lines) == 1
+    match = _BIPOLE_RE.match(v_lines[0])
+    assert match is not None
+    y_first, y_second = float(match.group(2)), float(match.group(5))
+    assert y_second > y_first, (
+        "V1 drawn with '+' at the wrong end: " + v_lines[0])
+
+
+def test_fun5_unresolved_kicad_variables_suppressed():
+    """${SIM.PARAMS} and friends must never appear in output."""
+    tex = _sim_spice_tex()
+    assert "SIM.PARAMS" not in tex
+
+
+def test_fun5_no_leads_to_floating_supply_pins():
+    """The op amp's V+/V- pins are unconnected in this schematic, so no
+    anchor leads may be drawn for them (they slash across the symbol)."""
+    tex = _sim_spice_tex()
+    assert ".up)" not in tex
+    assert ".down)" not in tex

@@ -21,7 +21,7 @@ from __future__ import annotations
 
 import os
 import re
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Set, Tuple
 
 from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
                     PinConnection, Point, SchematicDocument)
@@ -142,6 +142,8 @@ def _is_placeholder_value(value: str, lib_id: str,
     v = value.strip()
     if v in ("", "~", "?"):
         return True
+    if "${" in v:
+        return True  # unresolved KiCad text variable, e.g. ${SIM.PARAMS}
     if v.upper() in ("R", "C", "L", "D"):
         return True
     lib_name = lib_id.split(":", 1)[-1] if lib_id else ""
@@ -273,6 +275,21 @@ def _pin_named(pins: List[PinConnection],
     return None
 
 
+def _sim_pin_roles(comp: Component) -> Dict[str, str]:
+    """Parse KiCad's ``Sim.Pins`` property into pin number -> role.
+
+    Simulation symbols (Simulation_SPICE:VDC, OPAMP...) often have unnamed
+    pins and carry polarity only here, e.g. ``"1=+ 2=-"`` or
+    ``"1=in+ 2=in- 3=vcc 4=vee 5=out"``.  Roles are lower-cased.
+    """
+    roles: Dict[str, str] = {}
+    for token in comp.properties.get("Sim.Pins", "").split():
+        num, sep, role = token.partition("=")
+        if sep:
+            roles[num.strip()] = role.strip().lower()
+    return roles
+
+
 def _bipole_pin_order(comp: Component) -> Tuple[PinConnection, PinConnection]:
     """Return (first, second) pins so the circuitikz bipole polarity is right.
 
@@ -300,12 +317,20 @@ def _bipole_pin_order(comp: Component) -> Tuple[PinConnection, PinConnection]:
             return (anode, cathode)
         return (b, a)  # KiCad convention: pin 1 = K, pin 2 = A
     if comp.ctype.is_source:
-        plus = _pin_named(pins, ("+", "p", "plus"))
-        minus = _pin_named(pins, ("-", "n", "minus"))
-        if plus is not None and minus is not None:
-            if comp.ctype == ComponentType.CURRENT_SOURCE:
-                return (plus, minus)
-            return (minus, plus)
+        roles = _sim_pin_roles(comp)
+        plus = _pin_named(pins, ("+", "p", "plus")) or next(
+            (p for p in pins if roles.get(p.number) == "+"), None)
+        minus = _pin_named(pins, ("-", "n", "minus")) or next(
+            (p for p in pins if roles.get(p.number) == "-"), None)
+        if plus is None:
+            # KiCad sources (VDC, VSIN, Battery...) put '+' on pin 1 even
+            # when the pins are unnamed and Sim.Pins is absent.
+            plus = next((p for p in pins if p.number == "1"), a)
+        if minus is None or minus is plus:
+            minus = next((p for p in pins if p is not plus), b)
+        if comp.ctype == ComponentType.CURRENT_SOURCE:
+            return (plus, minus)
+        return (minus, plus)
     return (a, b)
 
 
@@ -378,8 +403,8 @@ def _classify_gate_pins(comp: Component) -> Tuple[List[PinConnection],
     return inputs, outputs, other
 
 
-def _emit_gate(comp: Component, tr: _Transform,
-               warnings: List[str]) -> List[str]:
+def _emit_gate(comp: Component, tr: _Transform, warnings: List[str],
+               dangling: Set[int]) -> List[str]:
     style = _GATE_STYLES[comp.ctype]
     inputs, outputs, other = _classify_gate_pins(comp)
     max_inputs = 1 if comp.ctype in (ComponentType.NOT_GATE,
@@ -395,42 +420,79 @@ def _emit_gate(comp: Component, tr: _Transform,
         lines.append(f"\\draw ({name}.in {idx}) -- {tr.coord(pin.position)};")
     lines.append(f"\\draw ({name}.out) -- {tr.coord(outputs[0].position)};")
     for pin in other:  # power pins etc.: keep the connection point honest
+        if pin.net_id < 0 or pin.net_id in dangling:
+            continue  # floating optional pin: no lead
         lines.append(f"\\draw {tr.coord(pin.position)} -- ({name}.center);")
     lines.append(f"\\node[font=\\small, anchor=south] at "
                  f"{_xy(cx, cy + 0.45)} {{{_box_label(comp)}}};")
     return lines
 
 
-def _emit_opamp(comp: Component, tr: _Transform,
-                warnings: List[str]) -> List[str]:
+def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
+                dangling: Set[int]) -> List[str]:
     name = _node_name(comp.ref)
     cx, cy = tr.point(comp.position)
-    lines = [f"\\node[op amp] ({name}) at {_xy(cx, cy)} {{}};",
-             f"\\node[font=\\small, anchor=south] at {_xy(cx, cy + 0.85)} "
-             f"{{{_box_label(comp)}}};"]
+    roles = _sim_pin_roles(comp)
     matched: Dict[str, str] = {}
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
         pname = pin.name.strip().lower()
-        if pname in ("-", "in-", "inn") and "-" not in matched:
+        role = roles.get(number, "")
+        if (pname in ("-", "in-", "inn") or role in ("-", "in-")) \
+                and "-" not in matched.values():
             matched[number] = "-"
-        elif pname in ("+", "in+", "inp") and "+" not in matched:
+        elif (pname in ("+", "in+", "inp") or role in ("+", "in+")) \
+                and "+" not in matched.values():
             matched[number] = "+"
-        elif pin.etype == "output" or pname in ("out", "output", "~", ""):
+        elif pname in ("v+", "vcc", "vdd") or role in ("vcc", "vdd", "v+"):
+            matched[number] = "up"
+        elif pname in ("v-", "vee", "vss", "gnd") \
+                or role in ("vee", "vss", "v-"):
+            matched[number] = "down"
+        elif pin.etype == "output" or role == "out" \
+                or pname in ("out", "output", "~", ""):
             if "out" not in matched.values():
                 matched[number] = "out"
-        elif pname in ("v+", "vcc", "vdd"):
-            matched[number] = "up"
-        elif pname in ("v-", "vee", "vss", "gnd"):
-            matched[number] = "down"
+
+    # KiCad symbols may put the non-inverting input on top (e.g.
+    # Simulation_SPICE:OPAMP), or the symbol may be rotated/mirrored;
+    # circuitikz's default op amp has '-' on top.  Compare the true pin
+    # heights and flip the node so the anchor-to-pin leads never cross.
+    node_style = "op amp"
+    plus_no = next((n for n, a in matched.items() if a == "+"), None)
+    minus_no = next((n for n, a in matched.items() if a == "-"), None)
+    if plus_no is not None and minus_no is not None:
+        plus_y = tr.point(comp.pins[plus_no].position)[1]
+        minus_y = tr.point(comp.pins[minus_no].position)[1]
+        if plus_y > minus_y:
+            node_style = "op amp, noinv input up"
+    # Supply anchors likewise follow the actual pin geometry.
+    for number, anchor in list(matched.items()):
+        if anchor in ("up", "down"):
+            pin_y = tr.point(comp.pins[number].position)[1]
+            matched[number] = "up" if pin_y >= cy else "down"
+
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};",
+             f"\\node[font=\\small, anchor=south] at {_xy(cx, cy + 0.85)} "
+             f"{{{_box_label(comp)}}};"]
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
         anchor = matched.get(number)
+        unconnected = pin.net_id < 0 or pin.net_id in dangling
         if anchor is None:
+            if unconnected:
+                continue  # optional pin with nothing attached: no lead
             warnings.append(f"{comp.ref}: pin {number} ('{pin.name}') has "
                             f"no op-amp anchor; drawing a plain lead.")
             lines.append(
                 f"\\draw {tr.coord(pin.position)} -- ({name}.center);")
+        elif anchor in ("up", "down"):
+            if unconnected:
+                continue  # supply pin left floating in the schematic
+            # Right-angle route (vertical, then horizontal) so supply
+            # leads never slash across the triangle.
+            lines.append(
+                f"\\draw ({name}.{anchor}) |- {tr.coord(pin.position)};")
         else:
             lines.append(
                 f"\\draw ({name}.{anchor}) -- {tr.coord(pin.position)};")
@@ -549,14 +611,14 @@ def _box_label(comp: Component) -> str:
     return label
 
 
-def _emit_component(comp: Component, tr: _Transform,
-                    warnings: List[str]) -> List[str]:
+def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
+                    dangling: Set[int]) -> List[str]:
     if comp.ctype == ComponentType.OPAMP and len(comp.pins) >= 3:
-        return _emit_opamp(comp, tr, warnings)
+        return _emit_opamp(comp, tr, warnings, dangling)
     if comp.ctype in _TRANSISTOR_STYLES and len(comp.pins) >= 3:
         return _emit_transistor(comp, tr, warnings)
     if comp.ctype in _GATE_STYLES and len(comp.pins) >= 2:
-        return _emit_gate(comp, tr, warnings)
+        return _emit_gate(comp, tr, warnings, dangling)
     return _emit_generic_box(comp, tr)
 
 
@@ -661,8 +723,11 @@ def generate_body(graph: CircuitGraph) -> str:
 
     if multi_pin:
         lines.append("% Multi-pin components")
+        # Nets with fewer than two pins are dangling: optional pins (op-amp
+        # supplies, gate power) on them get no lead drawn.
+        dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
         for comp in multi_pin:
-            lines.extend(_emit_component(comp, tr, warnings))
+            lines.extend(_emit_component(comp, tr, warnings, dangling))
 
     power_lines = _emit_power_symbols(doc, tr, net_at, warnings)
     if power_lines:
