@@ -68,6 +68,15 @@ _BIPOLE_KEYS: Dict[ComponentType, str] = {
 
 _DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
 
+# Measured geometry of circuitikz's `op amp` node at scale 1 (probed with
+# \pgfgetlastxy against circuitikz 1.7): the '+'/'-' input anchors sit at
+# (-1.190, +/-0.490) and the out anchor at (+1.190, 0) TikZ units.
+# Stretching the node with xscale/yscale so these anchors land exactly on
+# the KiCad pin positions makes every lead a zero-length straight join,
+# just like the original schematic.
+_OPAMP_INPUT_HALF = 0.490
+_OPAMP_ANCHOR_X = 1.190
+
 _TRANSISTOR_STYLES: Dict[ComponentType, Tuple[str, Tuple[str, str, str]]] = {
     ComponentType.TRANSISTOR_NPN: ("npn", ("B", "C", "E")),
     ComponentType.TRANSISTOR_PNP: ("pnp", ("B", "C", "E")),
@@ -461,6 +470,8 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
     node_style = "op amp"
     plus_no = next((n for n, a in matched.items() if a == "+"), None)
     minus_no = next((n for n, a in matched.items() if a == "-"), None)
+    out_no = next((n for n, a in matched.items() if a == "out"), None)
+    plus_y = minus_y = None
     if plus_no is not None and minus_no is not None:
         plus_y = tr.point(comp.pins[plus_no].position)[1]
         minus_y = tr.point(comp.pins[minus_no].position)[1]
@@ -472,8 +483,29 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             pin_y = tr.point(comp.pins[number].position)[1]
             matched[number] = "up" if pin_y >= cy else "down"
 
-    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};",
-             f"\\node[font=\\small, anchor=south] at {_xy(cx, cy + 0.85)} "
+    if out_no is not None and plus_y is not None \
+            and abs(plus_y - minus_y) > 0.1:
+        # Pin the node's output anchor to the true output pin and stretch
+        # it (independently in x and y) so the input anchors land exactly
+        # on the KiCad pin positions: every lead becomes a zero-length
+        # straight join, exactly like the original schematic.  A negative
+        # xscale flips a mirrored (output-on-the-left) op amp correctly.
+        ox, oy = tr.point(comp.pins[out_no].position)
+        in_x = (tr.point(comp.pins[plus_no].position)[0]
+                + tr.point(comp.pins[minus_no].position)[0]) / 2.0
+        yscale = abs(plus_y - minus_y) / 2.0 / _OPAMP_INPUT_HALF
+        yscale = min(max(yscale, 0.4), 4.0)
+        xscale = (ox - in_x) / (2.0 * _OPAMP_ANCHOR_X)
+        sign = 1.0 if xscale >= 0 else -1.0
+        xscale = sign * min(max(abs(xscale), 0.4), 4.0)
+        node_style += (f", anchor=out, xscale={_fmt(xscale)}"
+                       f", yscale={_fmt(yscale)}")
+        node_at = _xy(ox, oy)
+    else:
+        node_at = _xy(cx, cy)
+
+    lines = [f"\\node[{node_style}] ({name}) at {node_at} {{}};",
+             f"\\node[font=\\small, anchor=south] at ({name}.north) "
              f"{{{_box_label(comp)}}};"]
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]

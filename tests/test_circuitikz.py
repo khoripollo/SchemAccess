@@ -378,3 +378,14 @@ def test_fun5_no_leads_to_floating_supply_pins():
     tex = _sim_spice_tex()
     assert ".up)" not in tex
     assert ".down)" not in tex
+
+
+def test_fun6_opamp_anchors_land_on_kicad_pins():
+    """The op amp node is pinned to its output pin (anchor=out) and
+    stretched with xscale/yscale so the input anchors land exactly on the
+    KiCad pin positions - leads render as straight joins, not diagonals."""
+    tex = _sim_spice_tex()
+    opamp_line = next(ln for ln in tex.splitlines() if "op amp" in ln)
+    assert "anchor=out" in opamp_line
+    assert re.search(r"xscale=1\.6\d*", opamp_line), opamp_line
+    assert re.search(r"yscale=1\.3\d*", opamp_line), opamp_line
