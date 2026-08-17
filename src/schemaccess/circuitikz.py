@@ -126,6 +126,26 @@ _TRANSISTOR_STYLES: Dict[
 _TR_CHANNEL_Y = 0.77
 _XFMR_ANCHOR = 1.0495
 
+# ---------------------------------------------------------------------------
+# JFET geometry, taken from KiCad's own Transistor_FET symbols.
+#
+# circuitikz draws a JFET's gate a third of the way down the channel, and
+# its keys cannot move it without collapsing the channel, so JFETs are drawn
+# directly instead.  All values are millimetres in KiCad library coordinates
+# (Y up), measured relative to the drain/source pin column, so the symbol can
+# be anchored on the real pins at any size or orientation.
+# ---------------------------------------------------------------------------
+_JFET_BAR_X = -2.286        # channel bar, left of the D/S column
+_JFET_BAR_HALF = 1.905      # half the bar's height
+_JFET_CONN_Y = 1.397        # where the D/S leads meet the bar
+_JFET_STUB_Y = 2.54         # where the D/S leads leave the pin column
+_JFET_GATE_END = -5.08      # outer end of the gate lead (on the centre line)
+_JFET_ARROW_TIP = -2.54     # gate arrow, tip toward the channel
+_JFET_ARROW_BACK = -3.556
+_JFET_ARROW_HALF = 0.381
+_JFET_CIRCLE_X = -1.27      # body circle centre
+_JFET_CIRCLE_R = 2.8194
+
 _GATE_STYLES: Dict[ComponentType, str] = {
     ComponentType.AND_GATE: "and port",
     ComponentType.OR_GATE: "or port",
@@ -688,6 +708,63 @@ def _emit_transistor(comp: Component, tr: _Transform,
     return lines
 
 
+def _emit_jfet(comp: Component, tr: _Transform,
+               warnings: List[str]) -> List[str]:
+    """Draw a JFET the way KiCad does: a channel bar with the gate entering
+    on its centre line, stepped drain/source leads and a body circle.
+
+    circuitikz's own ``njfet``/``pjfet`` place the gate off the centre line
+    and offer no way to centre it without flattening the channel, so the
+    symbol is drawn from KiCad's geometry instead.  Every lead is straight.
+    """
+    by_name = {}
+    for number in sorted(comp.pins, key=_pin_sort_key):
+        letter = comp.pins[number].name.strip()[:1].upper()
+        if letter in ("D", "G", "S") and letter not in by_name:
+            by_name[letter] = comp.pins[number]
+    if len(by_name) != 3:
+        warnings.append(f"{comp.ref}: JFET pins not recognised; drawing a box.")
+        return _emit_generic_box(comp, tr)
+
+    dx, dy = tr.point(by_name["D"].position)
+    sx, sy = tr.point(by_name["S"].position)
+    gx, gy = tr.point(by_name["G"].position)
+    chx = (dx + sx) / 2.0
+    cy = (dy + sy) / 2.0
+    mx = -1.0 if gx > chx else 1.0          # gate on the right: mirror
+    # The drain is normally on top, but honour whatever KiCad has.
+    upper, lower = ("D", "S") if dy >= sy else ("S", "D")
+
+    def at(mm_x: float, mm_y: float) -> str:
+        return _xy(chx + mx * mm_x * SCALE, cy + mm_y * SCALE)
+
+    lines = [
+        f"\\draw ({_fmt(chx + mx * _JFET_CIRCLE_X * SCALE)},{_fmt(cy)}) "
+        f"circle ({_fmt(_JFET_CIRCLE_R * SCALE)});",
+        f"\\draw[line width=0.8pt] {at(_JFET_BAR_X, -_JFET_BAR_HALF)} -- "
+        f"{at(_JFET_BAR_X, _JFET_BAR_HALF)};",
+        # gate lead, straight along the centre line
+        f"\\draw {at(_JFET_BAR_X, 0)} -- {at(_JFET_GATE_END, 0)};",
+    ]
+    # Gate arrow: points at the channel for an N-JFET, away for a P-JFET.
+    tip, back = _JFET_ARROW_TIP, _JFET_ARROW_BACK
+    if comp.ctype == ComponentType.PJFET:
+        tip, back = back, tip
+    lines.append(
+        f"\\fill {at(tip, 0)} -- {at(back, _JFET_ARROW_HALF)} -- "
+        f"{at(back, -_JFET_ARROW_HALF)} -- cycle;")
+    # Stepped leads from the bar out to the pin column, then to the pins.
+    for name, sign in ((upper, 1.0), (lower, -1.0)):
+        pin_x, pin_y = tr.point(by_name[name].position)
+        lines.append(
+            f"\\draw {at(_JFET_BAR_X, sign * _JFET_CONN_Y)} -- "
+            f"{at(0, sign * _JFET_CONN_Y)} -- {at(0, sign * _JFET_STUB_Y)} "
+            f"-- {_xy(pin_x, pin_y)};")
+    lines.append(f"\\draw {at(_JFET_GATE_END, 0)} -- {_xy(gx, gy)};")
+    lines.extend(_label_node(comp, chx, cy + _JFET_CIRCLE_R * SCALE + 0.1))
+    return lines
+
+
 def _emit_transformer(comp: Component, tr: _Transform) -> List[str]:
     """A circuitikz transformer, scaled so its winding taps line up with
     the KiCad pins and every lead runs straight across."""
@@ -816,6 +893,9 @@ def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
                     dangling: Set[int]) -> List[str]:
     if comp.ctype == ComponentType.OPAMP and len(comp.pins) >= 3:
         return _emit_opamp(comp, tr, warnings, dangling)
+    if comp.ctype in (ComponentType.NJFET, ComponentType.PJFET) \
+            and len(comp.pins) >= 3:
+        return _emit_jfet(comp, tr, warnings)
     if comp.ctype in _TRANSISTOR_STYLES and len(comp.pins) >= 3:
         return _emit_transistor(comp, tr, warnings)
     if comp.ctype == ComponentType.TRANSFORMER:

@@ -683,7 +683,7 @@ def test_fun5_real_symbols_not_generic_boxes():
     rectangle, and no pin is left without an anchor."""
     graph = _mixed()
     tex = circuitikz.generate(graph)
-    for key in ("npn", "pnp", "njfet", "transformer core", "cvsource"):
+    for key in ("npn", "pnp", "transformer core", "cvsource"):
         assert key in tex, f"{key} missing from generated .tex"
     assert "rectangle" not in tex, "a symbol fell back to a generic box"
     assert not [w for w in graph.warnings if "no " in w and "anchor" in w], (
@@ -722,11 +722,12 @@ def test_fun4_transformer_taps_match_kicad_sides():
 
 
 def test_fun6_transistor_leads_are_straight():
-    """Every transistor lead is a plain straight segment: the node is
-    centred on the channel pins' x and placed vertically from the control
-    pin, so channel leads run down and the control lead runs across."""
+    """Every bipolar transistor lead is a plain straight segment: the node
+    is centred on the channel pins' x and placed vertically from the base
+    pin, so channel leads run down and the base lead runs across.  (JFETs
+    are drawn directly - see the JFET tests below.)"""
     tex = circuitikz.generate(_mixed())
-    for ref in ("Q1", "Q2", "Q3"):
+    for ref in ("Q1", "Q2"):
         leads = [ln for ln in tex.splitlines()
                  if ln.startswith(f"\\draw (n{ref}.")]
         assert len(leads) == 3, f"{ref}: expected 3 leads, got {leads}"
@@ -734,25 +735,53 @@ def test_fun6_transistor_leads_are_straight():
             assert " -- " in line, f"{ref}: lead needs a jog: {line}"
 
 
-def test_fun4_jfet_gate_offset_compensated():
-    """circuitikz puts a JFET's gate anchor off the centre line while KiCad
-    puts the gate pin on it; the node is shifted so the gate lead still
-    comes out horizontal."""
-    from schemaccess.circuitikz import _TRANSISTOR_STYLES
-    from schemaccess.model import ComponentType
-
-    _s, _c, _f, _sec, ctrl_dy, _fd = \
-        _TRANSISTOR_STYLES[ComponentType.NJFET]
-    assert ctrl_dy != 0.0, "JFET gate offset should be non-zero"
-
+def test_fun4_jfet_gate_enters_on_the_centre_line():
+    """A JFET is drawn from KiCad's geometry rather than circuitikz's shape
+    (whose gate sits a third of the way down the channel).  Its gate lead
+    must be horizontal and on the drain/source midline."""
     graph = _mixed()
     tex = circuitikz.generate(graph)
-    node = next(ln for ln in tex.splitlines() if "njfet" in ln)
-    node_y = float(_COORD_RE.findall(node)[-1][1])
-    gate = next(ln for ln in tex.splitlines() if ln.startswith("\\draw (nQ3.G)"))
-    gate_y = float(_COORD_RE.findall(gate)[-1][1])
-    assert abs((node_y + ctrl_dy) - gate_y) < 0.01, (
-        f"gate anchor {node_y + ctrl_dy} does not meet pin {gate_y}")
+    for ref in ("Q3", "Q4"):
+        comp = graph.components[ref]
+        pins = {p.name.strip()[:1].upper(): p for p in comp.pins.values()}
+        gate = _tex_point(tex, pins["G"].position, graph)
+        drain = _tex_point(tex, pins["D"].position, graph)
+        source = _tex_point(tex, pins["S"].position, graph)
+        midline = (drain[1] + source[1]) / 2.0
+        assert abs(gate[1] - midline) < 1e-6, (
+            f"{ref}: gate pin is not on the D/S midline")
+        # The lead reaching that pin must be perfectly horizontal.
+        target = f"-- {_xy_str(gate)};"
+        lead = [ln for ln in tex.splitlines() if ln.endswith(target)]
+        assert lead, f"{ref}: no lead drawn to the gate pin"
+        pts = _COORD_RE.findall(lead[0])
+        assert abs(float(pts[-2][1]) - gate[1]) < 1e-6, (
+            f"{ref}: gate lead is not horizontal: {lead[0]}")
+
+
+def test_fun5_jfet_drawn_with_kicad_body():
+    """The JFET body is the KiCad picture: circle, thick channel bar, a
+    filled gate arrow and stepped drain/source leads."""
+    tex = circuitikz.generate(_mixed())
+    assert "circle (" in tex, "no JFET body circle"
+    assert "line width=0.8pt" in tex, "no thick channel bar"
+    assert "\\fill (" in tex, "no filled gate arrow"
+    assert "njfet" not in tex and "pjfet" not in tex, (
+        "circuitikz's off-centre JFET shape is still being used")
+
+
+def _tex_point(tex: str, position, graph):
+    """Transform a KiCad pin position the way the generator does."""
+    from schemaccess.circuitikz import _Transform, _fmt
+
+    point = _Transform(graph).point(position)
+    return (float(_fmt(point[0])), float(_fmt(point[1])))
+
+
+def _xy_str(point) -> str:
+    from schemaccess.circuitikz import _fmt
+
+    return f"({_fmt(point[0])},{_fmt(point[1])})"
 
 
 def test_fun4_p_type_transistor_flipped_to_match_kicad():
