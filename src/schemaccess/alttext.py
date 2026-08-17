@@ -168,10 +168,27 @@ def _component_phrase(comp: Component) -> str:
     return f"{_article(core)} {core} labelled {comp.ref}"
 
 
+#: Terminal names for three-terminal devices, by pin name.
+_BJT_TERMINALS = {"C": "its collector", "B": "its base", "E": "its emitter"}
+_FET_TERMINALS = {"D": "its drain", "G": "its gate", "S": "its source"}
+
+
 def _pin_label(comp: Component, pin: PinConnection) -> str:
     """Human name for a pin inside a multi-pin component sentence."""
     name = pin.name.strip()
     upper = name.upper()
+    if comp.ctype.is_transistor:
+        table = (_BJT_TERMINALS
+                 if comp.ctype in (ComponentType.TRANSISTOR_NPN,
+                                   ComponentType.TRANSISTOR_PNP)
+                 else _FET_TERMINALS)
+        if upper in table:
+            return table[upper]
+    if comp.ctype == ComponentType.TRANSFORMER and len(upper) == 2:
+        winding = {"A": "primary", "S": "secondary"}.get(upper[0])
+        if winding:
+            end = "start" if upper[1] == "A" else "end"
+            return f"the {end} of its {winding} winding"
     if comp.ctype == ComponentType.OPAMP:
         if upper in ("V+", "VS+", "VCC", "VDD"):
             return "its positive supply pin"

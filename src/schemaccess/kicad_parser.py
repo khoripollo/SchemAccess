@@ -126,6 +126,8 @@ def _parse_lib_symbol(node: list, doc: SchematicDocument) -> Optional[LibSymbol]
                     lib.is_power = True
             elif key in ("Description", "ki_description"):
                 lib.description = val
+            elif key == "ki_keywords":
+                lib.keywords = val
 
     # Pins live in nested unit sub-symbols named e.g.  "R_0_1", "R_1_1".
     for sub in sexpr.children(node, "symbol"):

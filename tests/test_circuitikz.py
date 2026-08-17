@@ -307,9 +307,14 @@ def test_fun7_ground_mapping_matches_symbol_count(name: str, load) -> None:
 # ---------------------------------------------------------------------------
 
 def _ref_pattern(ref: str) -> re.Pattern:
-    """Match *ref* as a standalone designator token (not nR1, not R10)."""
+    """Match *ref* as a standalone designator token.
+
+    Excludes ``nR1`` (TikZ node names), ``R10`` (longer designators) and
+    ``nT1.B1`` (anchor references - a dot before the token means it is an
+    anchor on some other node, not a printed label).
+    """
     return re.compile(
-        rf"(?<![A-Za-z0-9]){re.escape(ref)}(?![A-Za-z0-9])")
+        rf"(?<![A-Za-z0-9.]){re.escape(ref)}(?![A-Za-z0-9])")
 
 
 @pytest.mark.parametrize("name", VALID_FIXTURES)
@@ -647,3 +652,70 @@ def test_rel3_hidden_fields_do_not_change_alt_text():
 
     text = alttext.generate(load_graph("hidden_fields.kicad_sch"), "standard")
     assert "R1" in text and "R2" in text
+
+
+# ---------------------------------------------------------------------------
+# FUN-4/FUN-5: transistors, transformers and controlled sources get their
+# real circuitikz symbols (mixed_symbols.kicad_sch covers all of them).
+# ---------------------------------------------------------------------------
+
+def _mixed():
+    from conftest import load_graph
+    return load_graph("mixed_symbols.kicad_sch")
+
+
+def test_fun4_transistor_families_classified():
+    """NPN, PNP and JFET are told apart from the library name plus the
+    symbol's description/keywords - not from the reference prefix, which
+    is 'Q' for all of them."""
+    from schemaccess.model import ComponentType
+
+    comps = _mixed().components
+    assert comps["Q1"].ctype is ComponentType.TRANSISTOR_NPN
+    assert comps["Q2"].ctype is ComponentType.TRANSISTOR_PNP
+    assert comps["Q3"].ctype is ComponentType.NJFET
+    assert comps["T1"].ctype is ComponentType.TRANSFORMER
+    assert comps["B1"].ctype is ComponentType.CONTROLLED_SOURCE
+
+
+def test_fun5_real_symbols_not_generic_boxes():
+    """Each of these draws as its circuitikz element, never the fallback
+    rectangle, and no pin is left without an anchor."""
+    graph = _mixed()
+    tex = circuitikz.generate(graph)
+    for key in ("npn", "pnp", "njfet", "transformer core", "cvsource"):
+        assert key in tex, f"{key} missing from generated .tex"
+    assert "rectangle" not in tex, "a symbol fell back to a generic box"
+    assert not [w for w in graph.warnings if "no " in w and "anchor" in w], (
+        f"unanchored pins: {graph.warnings}")
+
+
+def test_fun6_transistor_and_transformer_leads_orthogonal():
+    """Every lead from these nodes is straight or right-angled."""
+    tex = circuitikz.generate(_mixed())
+    leads = [ln for ln in tex.splitlines()
+             if ln.startswith("\\draw (n")
+             and any(f"(n{r}." in ln for r in ("Q1", "Q2", "Q3", "T1"))]
+    assert leads, "no transistor/transformer leads emitted"
+    for line in leads:
+        assert (" -- " in line or " -| " in line or " |- " in line), line
+
+
+def test_fun4_transformer_taps_match_kicad_sides():
+    """The transformer's four taps map to the correct winding and end:
+    left/right by x, upper/lower by y."""
+    graph = _mixed()
+    tex = circuitikz.generate(graph)
+    node = next(ln for ln in tex.splitlines() if "transformer core" in ln)
+    cx, cy = (float(v) for v in _COORD_RE.findall(node)[-1])
+    seen = {}
+    for line in tex.splitlines():
+        if not line.startswith("\\draw (nT1."):
+            continue
+        anchor = line.split("nT1.", 1)[1].split(")", 1)[0]
+        x, y = (float(v) for v in _COORD_RE.findall(line)[-1])
+        seen[anchor] = (x, y)
+    assert set(seen) == {"A1", "A2", "B1", "B2"}, seen
+    for anchor, (x, y) in seen.items():
+        assert (x < cx) == anchor.startswith("A"), f"{anchor} on wrong side"
+        assert (y > cy) == anchor.endswith("1"), f"{anchor} on wrong end"

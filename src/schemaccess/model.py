@@ -57,6 +57,12 @@ class LibSymbol:
     reference_prefix: str = "U"
     is_power: bool = False
     description: str = ""
+    keywords: str = ""
+
+    @property
+    def hints(self) -> str:
+        """Free text used to disambiguate a symbol's family."""
+        return f"{self.description} {self.keywords}".strip()
 
     def pins_for_unit(self, unit: int) -> List[PinDef]:
         """Connectable pins of *unit*.
@@ -199,6 +205,9 @@ class ComponentType(enum.Enum):
     TRANSISTOR_PNP = "PNP transistor"
     NMOS = "N-channel MOSFET"
     PMOS = "P-channel MOSFET"
+    NJFET = "N-channel JFET"
+    PJFET = "P-channel JFET"
+    CONTROLLED_SOURCE = "controlled source"
     OPAMP = "operational amplifier"
     SWITCH = "switch"
     PUSHBUTTON = "push button"
@@ -226,7 +235,15 @@ class ComponentType(enum.Enum):
     @property
     def is_source(self) -> bool:
         return self in (ComponentType.VOLTAGE_SOURCE, ComponentType.BATTERY,
-                        ComponentType.AC_SOURCE, ComponentType.CURRENT_SOURCE)
+                        ComponentType.AC_SOURCE, ComponentType.CURRENT_SOURCE,
+                        ComponentType.CONTROLLED_SOURCE)
+
+    @property
+    def is_transistor(self) -> bool:
+        return self in (ComponentType.TRANSISTOR_NPN,
+                        ComponentType.TRANSISTOR_PNP, ComponentType.NMOS,
+                        ComponentType.PMOS, ComponentType.NJFET,
+                        ComponentType.PJFET)
 
     @property
     def is_gate(self) -> bool:
@@ -243,6 +260,7 @@ _TWO_TERMINAL = {
     ComponentType.VOLTAGE_SOURCE, ComponentType.CURRENT_SOURCE,
     ComponentType.BATTERY, ComponentType.AC_SOURCE, ComponentType.SWITCH,
     ComponentType.PUSHBUTTON, ComponentType.FUSE, ComponentType.CRYSTAL,
+    ComponentType.CONTROLLED_SOURCE,
 }
 
 
@@ -383,6 +401,19 @@ _LIB_NAME_MAP = [
     ("q_pnp", ComponentType.TRANSISTOR_PNP),
     ("q_nmos", ComponentType.NMOS),
     ("q_pmos", ComponentType.PMOS),
+    ("q_njfet", ComponentType.NJFET),
+    ("q_pjfet", ComponentType.PJFET),
+    ("npn", ComponentType.TRANSISTOR_NPN),
+    ("pnp", ComponentType.TRANSISTOR_PNP),
+    ("njfet", ComponentType.NJFET),
+    ("pjfet", ComponentType.PJFET),
+    ("nmos", ComponentType.NMOS),
+    ("pmos", ComponentType.PMOS),
+    ("bsource", ComponentType.CONTROLLED_SOURCE),
+    ("vcvs", ComponentType.CONTROLLED_SOURCE),
+    ("vccs", ComponentType.CONTROLLED_SOURCE),
+    ("cccs", ComponentType.CONTROLLED_SOURCE),
+    ("ccvs", ComponentType.CONTROLLED_SOURCE),
     ("bc547", ComponentType.TRANSISTOR_NPN),
     ("2n2222", ComponentType.TRANSISTOR_NPN),
     ("2n7002", ComponentType.NMOS),
@@ -449,6 +480,25 @@ _LIB_CATEGORY_MAP = [
 _OPAMP_PLUS_NAMES = {"+", "in+", "inp", "vin+", "ninv", "non-inverting"}
 _OPAMP_MINUS_NAMES = {"-", "in-", "inn", "vin-", "inv", "inverting"}
 
+# Part-number families that are JFETs.  KiCad keeps JFETs and MOSFETs in
+# the same Transistor_FET library with identical D/G/S pin names, and most
+# JFET symbols carry no "JFET" keyword, so a small family list is the only
+# reliable discriminator.  Extend it as needed.
+_JFET_PREFIXES = ("bf24", "bf245", "bf256", "2n38", "2n39", "2n44", "2n54",
+                  "2n5457", "2n5458", "2n5459", "j1", "j2", "mmbf", "pn4",
+                  "u4", "bfw", "sst")
+
+
+def _fet_kind(name: str, hints: str) -> Optional["ComponentType"]:
+    """Resolve a D/G/S transistor into a JFET or MOSFET component type."""
+    text = f"{name} {hints}".lower()
+    p_channel = "p-channel" in text or "p channel" in text
+    if "jfet" in text or name.lower().startswith(_JFET_PREFIXES):
+        return ComponentType.PJFET if p_channel else ComponentType.NJFET
+    if "mosfet" in text or "fet" in text:
+        return ComponentType.PMOS if p_channel else ComponentType.NMOS
+    return None
+
 
 def _looks_like_opamp(pin_names: Sequence[str]) -> bool:
     """True when the pin names show a differential-input amplifier."""
@@ -458,15 +508,34 @@ def _looks_like_opamp(pin_names: Sequence[str]) -> bool:
 
 def classify(lib_id: str, reference: str = "", value: str = "",
              pin_count: int = 0,
-             pin_names: Sequence[str] = ()) -> ComponentType:
+             pin_names: Sequence[str] = (),
+             hints: str = "") -> ComponentType:
     """Best-effort classification of a symbol into a :class:`ComponentType`.
 
-    Priority: library symbol name, then KiCad library category, then the
-    pin-name signature (so unknown part numbers still resolve), then the
-    reference-designator prefix.
+    Priority: pin-name signatures that are unambiguous (transistors), then
+    the library symbol name, then the KiCad library category, then the
+    op-amp pin signature, then the reference-designator prefix.  *hints* is
+    free text from the library symbol (description plus keywords) used to
+    tell JFETs from MOSFETs and NPN from PNP.
     """
-    name = lib_id.split(":", 1)[-1].lower() if lib_id else ""
+    raw_name = lib_id.split(":", 1)[-1] if lib_id else ""
+    name = raw_name.lower()
     library = lib_id.split(":", 1)[0].lower() if ":" in lib_id else ""
+
+    # Three-terminal transistors are identified by their pin names, which
+    # are standard across libraries; the family comes from name + hints.
+    upper_pins = {str(p).strip().upper() for p in pin_names}
+    if {"D", "G", "S"} <= upper_pins:
+        fet = _fet_kind(raw_name, hints)
+        if fet is not None:
+            return fet
+        return ComponentType.NMOS
+    if {"B", "C", "E"} <= upper_pins:
+        text = f"{raw_name} {hints}".lower()
+        if "pnp" in text:
+            return ComponentType.TRANSISTOR_PNP
+        if "npn" in text:
+            return ComponentType.TRANSISTOR_NPN
     for prefix, ctype in _LIB_NAME_MAP:
         if name == prefix:
             return ctype

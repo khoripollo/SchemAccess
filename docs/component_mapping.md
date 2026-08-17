@@ -9,6 +9,21 @@ element. Two tables in the source code drive this:
   `src/schemaccess/circuitikz.py` map a `ComponentType` to a circuitikz
   element.
 
+## Stage 0: pin-name signatures (checked first)
+
+Three-terminal devices are recognised by their pin names, which are
+standard across every library, rather than by part number:
+
+| Pin names | Resolved with | ComponentType |
+| --- | --- | --- |
+| `D`, `G`, `S` | `_fet_kind()`: "jfet" in the symbol's description/keywords, or a part number in `_JFET_PREFIXES` (BF24x, J1xx, 2N54xx, MMBF…) → JFET; otherwise MOSFET. "p-channel" in the hints selects the P variant | NJFET / PJFET / NMOS / PMOS |
+| `B`, `C`, `E` | "pnp" or "npn" in the symbol name, description or keywords | TRANSISTOR_PNP / TRANSISTOR_NPN |
+
+This matters because KiCad keeps JFETs and MOSFETs in the same
+`Transistor_FET` library with identical `D`/`G`/`S` pins, and every
+bipolar and FET part shares the `Q` reference prefix — so neither the
+library nor the designator can tell them apart on its own.
+
 ## Stage 1: KiCad `lib_id` → `ComponentType`
 
 `model.classify()` takes the symbol name — the part of the `lib_id` after

@@ -71,6 +71,9 @@ _BIPOLE_KEYS: Dict[ComponentType, str] = {
     ComponentType.PUSHBUTTON: "nopb",
     ComponentType.FUSE: "fuse",
     ComponentType.CRYSTAL: "generic",
+    # KiCad draws behavioural/dependent sources as a diamond, matching
+    # circuitikz's controlled-source shape.
+    ComponentType.CONTROLLED_SOURCE: "cvsource",
 }
 
 _DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
@@ -108,7 +111,17 @@ _TRANSISTOR_STYLES: Dict[ComponentType, Tuple[str, Tuple[str, str, str]]] = {
     ComponentType.TRANSISTOR_PNP: ("pnp", ("B", "C", "E")),
     ComponentType.NMOS: ("nmos", ("G", "D", "S")),
     ComponentType.PMOS: ("pmos", ("G", "D", "S")),
+    ComponentType.NJFET: ("njfet", ("G", "D", "S")),
+    ComponentType.PJFET: ("pjfet", ("G", "D", "S")),
 }
+
+# Measured circuitikz geometry at natural size (probed with \pgfgetlastxy):
+# a transistor's channel anchors (C/E, D/S) sit at x = 0, y = +/-0.77, and
+# the control anchor (B/G) at x = -0.98.  A transformer's four anchors sit
+# at (+/-1.05, +/-1.05).
+_TR_CHANNEL_Y = 0.77
+_TR_CONTROL_X = 0.98
+_XFMR_ANCHOR = 1.0495
 
 _GATE_STYLES: Dict[ComponentType, str] = {
     ComponentType.AND_GATE: "and port",
@@ -359,9 +372,9 @@ def _bipole_pin_order(comp: Component) -> Tuple[PinConnection, PinConnection]:
         return (b, a)  # KiCad convention: pin 1 = K, pin 2 = A
     if comp.ctype.is_source:
         roles = _sim_pin_roles(comp)
-        plus = _pin_named(pins, ("+", "p", "plus")) or next(
+        plus = _pin_named(pins, ("+", "p", "plus", "n+", "in+")) or next(
             (p for p in pins if roles.get(p.number) == "+"), None)
-        minus = _pin_named(pins, ("-", "n", "minus")) or next(
+        minus = _pin_named(pins, ("-", "n", "minus", "n-", "in-")) or next(
             (p for p in pins if roles.get(p.number) == "-"), None)
         if plus is None:
             # KiCad sources (VDC, VSIN, Battery...) put '+' on pin 1 even
@@ -601,29 +614,90 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
 
 def _emit_transistor(comp: Component, tr: _Transform,
                      warnings: List[str]) -> List[str]:
+    """A circuitikz transistor node placed so its leads stay orthogonal.
+
+    circuitikz puts the channel anchors (C/E, D/S) on the node's centre
+    line and the control anchor (B/G) to its left; KiCad puts the channel
+    pins on a common vertical and the control pin on the opposite side.
+    Centring the node on the channel pins' x therefore makes the channel
+    leads vertical and the control lead horizontal - no diagonals, and the
+    symbol keeps circuitikz's natural size.
+    """
     style, anchors = _TRANSISTOR_STYLES[comp.ctype]
+    control, first, second = anchors
     name = _node_name(comp.ref)
-    cx, cy = tr.point(comp.position)
-    lines = [f"\\node[{style}] ({name}) at {_xy(cx, cy)} {{}};"]
-    lines.extend(_label_node(comp, cx, cy + 0.7))
-    remaining = dict(zip(anchors, anchors))
+
     assigned: Dict[str, str] = {}
+    remaining = dict(zip(anchors, anchors))
     for number in sorted(comp.pins, key=_pin_sort_key):
-        pin = comp.pins[number]
-        letter = pin.name.strip()[:1].upper()
+        letter = comp.pins[number].name.strip()[:1].upper()
         if letter in remaining:
             assigned[number] = remaining.pop(letter)
+
+    by_anchor = {a: comp.pins[n] for n, a in assigned.items()}
+    ctrl_pin = by_anchor.get(control)
+    chan = [by_anchor[a] for a in (first, second) if a in by_anchor]
+
+    cx, cy = tr.point(comp.position)
+    mirrored = False
+    if len(chan) == 2:
+        xs = [tr.point(p.position)[0] for p in chan]
+        ys = [tr.point(p.position)[1] for p in chan]
+        cx = (xs[0] + xs[1]) / 2.0
+        cy = (ys[0] + ys[1]) / 2.0
+        if ctrl_pin is not None:
+            mirrored = tr.point(ctrl_pin.position)[0] > cx
+
+    node_style = style + (", xscale=-1" if mirrored else "")
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};"]
+    lines.extend(_label_node(comp, cx, cy + _TR_CHANNEL_Y + 0.15))
+
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
         anchor = assigned.get(number)
+        px, py = tr.point(pin.position)
         if anchor is None:
             warnings.append(f"{comp.ref}: pin {number} ('{pin.name}') has "
                             f"no {style} anchor; drawing a plain lead.")
-            lines.append(
-                f"\\draw {tr.coord(pin.position)} -- ({name}.center);")
+            lines.append(f"\\draw {_xy(px, py)} -- ({name}.center);")
+            continue
+        if anchor == control:
+            ctrl_x = cx + (_TR_CONTROL_X if mirrored else -_TR_CONTROL_X)
+            joiner = "--" if abs(px - ctrl_x) < 5e-3 else "|-"
         else:
-            lines.append(
-                f"\\draw ({name}.{anchor}) -- {tr.coord(pin.position)};")
+            joiner = "--" if abs(px - cx) < 5e-3 else "-|"
+        lines.append(f"\\draw ({name}.{anchor}) {joiner} {_xy(px, py)};")
+    return lines
+
+
+def _emit_transformer(comp: Component, tr: _Transform) -> List[str]:
+    """A circuitikz transformer, scaled so its winding taps line up with
+    the KiCad pins and every lead runs straight across."""
+    pts = {n: tr.point(comp.pins[n].position)
+           for n in sorted(comp.pins, key=_pin_sort_key)}
+    if len(pts) != 4:
+        return _emit_generic_box(comp, tr)
+
+    xs = sorted({round(p[0], 3) for p in pts.values()})
+    ys = sorted({round(p[1], 3) for p in pts.values()})
+    if len(xs) != 2 or len(ys) != 2:
+        return _emit_generic_box(comp, tr)
+
+    cx = (xs[0] + xs[1]) / 2.0
+    cy = (ys[0] + ys[1]) / 2.0
+    scale = min(max(((ys[1] - ys[0]) / 2.0) / _XFMR_ANCHOR, 0.4), 2.5)
+    name = _node_name(comp.ref)
+    lines = [f"\\node[transformer core, scale={_fmt(scale)}] ({name}) "
+             f"at {_xy(cx, cy)} {{}};"]
+    lines.extend(_label_node(comp, cx, cy + _XFMR_ANCHOR * scale + 0.15))
+
+    # A1/A2 are the left (primary) taps, B1/B2 the right (secondary) ones;
+    # 1 is the upper tap of each winding.  Assign by geometry so a rotated
+    # or mirrored symbol still maps correctly.
+    for number, (px, py) in pts.items():
+        side = "A" if abs(px - xs[0]) < abs(px - xs[1]) else "B"
+        index = "1" if py > cy else "2"
+        lines.append(f"\\draw ({name}.{side}{index}) -- {_xy(px, py)};")
     return lines
 
 
@@ -726,6 +800,8 @@ def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
         return _emit_opamp(comp, tr, warnings, dangling)
     if comp.ctype in _TRANSISTOR_STYLES and len(comp.pins) >= 3:
         return _emit_transistor(comp, tr, warnings)
+    if comp.ctype == ComponentType.TRANSFORMER:
+        return _emit_transformer(comp, tr)
     if comp.ctype in _GATE_STYLES and len(comp.pins) >= 2:
         return _emit_gate(comp, tr, warnings, dangling)
     return _emit_generic_box(comp, tr)

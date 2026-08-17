@@ -1,4 +1,11 @@
 {
+  "mixed_symbols.kicad_sch": {
+    "components": 14,
+    "nets": 10,
+    "ground": true,
+    "power_symbols": 3,
+    "description": "Wide symbol coverage: NPN, PNP, N-channel JFET (BF244A), 1P/1S transformer, behavioural (controlled) source, two op amps, DPST switch, diode, R/L/C."
+  },
   "hidden_fields.kicad_sch": {
     "components": 2,
     "nets": 2,
