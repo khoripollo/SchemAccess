@@ -719,3 +719,47 @@ def test_fun4_transformer_taps_match_kicad_sides():
     for anchor, (x, y) in seen.items():
         assert (x < cx) == anchor.startswith("A"), f"{anchor} on wrong side"
         assert (y > cy) == anchor.endswith("1"), f"{anchor} on wrong end"
+
+
+def test_fun6_transistor_leads_are_straight():
+    """Every transistor lead is a plain straight segment: the node is
+    centred on the channel pins' x and placed vertically from the control
+    pin, so channel leads run down and the control lead runs across."""
+    tex = circuitikz.generate(_mixed())
+    for ref in ("Q1", "Q2", "Q3"):
+        leads = [ln for ln in tex.splitlines()
+                 if ln.startswith(f"\\draw (n{ref}.")]
+        assert len(leads) == 3, f"{ref}: expected 3 leads, got {leads}"
+        for line in leads:
+            assert " -- " in line, f"{ref}: lead needs a jog: {line}"
+
+
+def test_fun4_jfet_gate_offset_compensated():
+    """circuitikz puts a JFET's gate anchor off the centre line while KiCad
+    puts the gate pin on it; the node is shifted so the gate lead still
+    comes out horizontal."""
+    from schemaccess.circuitikz import _TRANSISTOR_STYLES
+    from schemaccess.model import ComponentType
+
+    _s, _c, _f, _sec, ctrl_dy, _fd = \
+        _TRANSISTOR_STYLES[ComponentType.NJFET]
+    assert ctrl_dy != 0.0, "JFET gate offset should be non-zero"
+
+    graph = _mixed()
+    tex = circuitikz.generate(graph)
+    node = next(ln for ln in tex.splitlines() if "njfet" in ln)
+    node_y = float(_COORD_RE.findall(node)[-1][1])
+    gate = next(ln for ln in tex.splitlines() if ln.startswith("\\draw (nQ3.G)"))
+    gate_y = float(_COORD_RE.findall(gate)[-1][1])
+    assert abs((node_y + ctrl_dy) - gate_y) < 0.01, (
+        f"gate anchor {node_y + ctrl_dy} does not meet pin {gate_y}")
+
+
+def test_fun4_p_type_transistor_flipped_to_match_kicad():
+    """circuitikz's p-type shapes carry the collector/drain at the bottom;
+    KiCad's Q2 has it on top, so the node must be flipped vertically."""
+    tex = circuitikz.generate(_mixed())
+    pnp = next(ln for ln in tex.splitlines() if "pnp" in ln)
+    assert "yscale=-1" in pnp, pnp
+    npn = next(ln for ln in tex.splitlines() if "[npn" in ln)
+    assert "yscale" not in npn, npn

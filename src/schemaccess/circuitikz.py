@@ -106,21 +106,24 @@ def _opamp_edge_y(local_x: float) -> float:
     slope = (0.0 - ay) / (_OPAMP_ANCHOR_X - ax)
     return max(ay + slope * (local_x - ax), 0.0)
 
-_TRANSISTOR_STYLES: Dict[ComponentType, Tuple[str, Tuple[str, str, str]]] = {
-    ComponentType.TRANSISTOR_NPN: ("npn", ("B", "C", "E")),
-    ComponentType.TRANSISTOR_PNP: ("pnp", ("B", "C", "E")),
-    ComponentType.NMOS: ("nmos", ("G", "D", "S")),
-    ComponentType.PMOS: ("pmos", ("G", "D", "S")),
-    ComponentType.NJFET: ("njfet", ("G", "D", "S")),
-    ComponentType.PJFET: ("pjfet", ("G", "D", "S")),
+# Measured circuitikz geometry at natural size (probed with \pgfgetlastxy
+# against circuitikz 1.7).  Per style: the control anchor (B/G), the two
+# channel anchors, the control anchor's y offset from the node centre, and
+# the y offset of the *first* channel anchor.  Note that the p-type shapes
+# put their first channel terminal at the BOTTOM, and that a JFET's gate
+# sits off the centre line - both of which have to be compensated for when
+# placing the node, or the leads come out with a step in them.
+_TRANSISTOR_STYLES: Dict[
+        ComponentType, Tuple[str, str, str, str, float, float]] = {
+    ComponentType.TRANSISTOR_NPN: ("npn", "B", "C", "E", 0.0, 0.77),
+    ComponentType.TRANSISTOR_PNP: ("pnp", "B", "C", "E", 0.0, -0.77),
+    ComponentType.NMOS: ("nmos", "G", "D", "S", 0.0, 0.77),
+    ComponentType.PMOS: ("pmos", "G", "D", "S", 0.0, -0.77),
+    ComponentType.NJFET: ("njfet", "G", "D", "S", -0.2695, 0.77),
+    ComponentType.PJFET: ("pjfet", "G", "D", "S", 0.2695, -0.77),
 }
 
-# Measured circuitikz geometry at natural size (probed with \pgfgetlastxy):
-# a transistor's channel anchors (C/E, D/S) sit at x = 0, y = +/-0.77, and
-# the control anchor (B/G) at x = -0.98.  A transformer's four anchors sit
-# at (+/-1.05, +/-1.05).
 _TR_CHANNEL_Y = 0.77
-_TR_CONTROL_X = 0.98
 _XFMR_ANCHOR = 1.0495
 
 _GATE_STYLES: Dict[ComponentType, str] = {
@@ -623,8 +626,9 @@ def _emit_transistor(comp: Component, tr: _Transform,
     leads vertical and the control lead horizontal - no diagonals, and the
     symbol keeps circuitikz's natural size.
     """
-    style, anchors = _TRANSISTOR_STYLES[comp.ctype]
-    control, first, second = anchors
+    style, control, first, second, ctrl_dy, first_dy = \
+        _TRANSISTOR_STYLES[comp.ctype]
+    anchors = (control, first, second)
     name = _node_name(comp.ref)
 
     assigned: Dict[str, str] = {}
@@ -636,20 +640,34 @@ def _emit_transistor(comp: Component, tr: _Transform,
 
     by_anchor = {a: comp.pins[n] for n, a in assigned.items()}
     ctrl_pin = by_anchor.get(control)
-    chan = [by_anchor[a] for a in (first, second) if a in by_anchor]
+    first_pin, second_pin = by_anchor.get(first), by_anchor.get(second)
 
     cx, cy = tr.point(comp.position)
     mirrored = False
-    if len(chan) == 2:
-        xs = [tr.point(p.position)[0] for p in chan]
-        ys = [tr.point(p.position)[1] for p in chan]
-        cx = (xs[0] + xs[1]) / 2.0
-        cy = (ys[0] + ys[1]) / 2.0
+    flipped = False
+    if first_pin is not None and second_pin is not None:
+        fx, fy = tr.point(first_pin.position)
+        _sx, sy = tr.point(second_pin.position)
+        # Centre on the channel pins' x so their leads run straight down.
+        cx = fx
+        # circuitikz's p-type shapes carry their first channel terminal at
+        # the bottom; flip vertically when KiCad has it the other way up.
+        flipped = (fy > sy) != (first_dy > 0)
         if ctrl_pin is not None:
+            # Place vertically so the control anchor lands on its own pin -
+            # this is what keeps a JFET's offset gate lead horizontal.
+            cy = tr.point(ctrl_pin.position)[1] - (
+                -ctrl_dy if flipped else ctrl_dy)
             mirrored = tr.point(ctrl_pin.position)[0] > cx
+        else:
+            cy = (fy + sy) / 2.0
 
-    node_style = style + (", xscale=-1" if mirrored else "")
-    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};"]
+    options = [style]
+    if mirrored:
+        options.append("xscale=-1")
+    if flipped:
+        options.append("yscale=-1")
+    lines = [f"\\node[{', '.join(options)}] ({name}) at {_xy(cx, cy)} {{}};"]
     lines.extend(_label_node(comp, cx, cy + _TR_CHANNEL_Y + 0.15))
 
     for number in sorted(comp.pins, key=_pin_sort_key):
@@ -662,8 +680,8 @@ def _emit_transistor(comp: Component, tr: _Transform,
             lines.append(f"\\draw {_xy(px, py)} -- ({name}.center);")
             continue
         if anchor == control:
-            ctrl_x = cx + (_TR_CONTROL_X if mirrored else -_TR_CONTROL_X)
-            joiner = "--" if abs(px - ctrl_x) < 5e-3 else "|-"
+            anchor_y = cy + (-ctrl_dy if flipped else ctrl_dy)
+            joiner = "--" if abs(py - anchor_y) < 5e-3 else "|-"
         else:
             joiner = "--" if abs(px - cx) < 5e-3 else "-|"
         lines.append(f"\\draw ({name}.{anchor}) {joiner} {_xy(px, py)};")
