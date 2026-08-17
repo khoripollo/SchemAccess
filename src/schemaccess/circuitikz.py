@@ -495,52 +495,38 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             pin_y = tr.point(comp.pins[number].position)[1]
             matched[number] = "up" if pin_y >= cy else "down"
 
-    placement: Optional[Tuple[float, float, float, float]] = None
-    if out_no is not None and plus_y is not None \
-            and abs(plus_y - minus_y) > 0.1:
-        # Pin the node's output anchor to the true output pin and stretch
-        # it (independently in x and y) so the input anchors land exactly
-        # on the KiCad pin positions: every lead becomes a zero-length
-        # straight join, exactly like the original schematic.  A negative
-        # xscale flips a mirrored (output-on-the-left) op amp correctly.
-        ox, oy = tr.point(comp.pins[out_no].position)
+    # The symbol is drawn at circuitikz's own natural size (the size a
+    # LaTeX author gets from a plain '\node[op amp]'), centred on the
+    # KiCad symbol origin - not stretched to the pin spacing.  Only a
+    # mirrored symbol (output on the left) needs a transform.
+    mirrored = False
+    if out_no is not None and plus_no is not None and minus_no is not None:
+        out_x = tr.point(comp.pins[out_no].position)[0]
         in_x = (tr.point(comp.pins[plus_no].position)[0]
                 + tr.point(comp.pins[minus_no].position)[0]) / 2.0
-        yscale = abs(plus_y - minus_y) / 2.0 / _OPAMP_INPUT_HALF
-        yscale = min(max(yscale, 0.4), 4.0)
-        xscale = (ox - in_x) / (2.0 * _OPAMP_ANCHOR_X)
-        sign = 1.0 if xscale >= 0 else -1.0
-        xscale = sign * min(max(abs(xscale), 0.4), 4.0)
-        node_style += (f", anchor=out, xscale={_fmt(xscale)}"
-                       f", yscale={_fmt(yscale)}")
-        node_at = _xy(ox, oy)
-        placement = (ox, oy, xscale, yscale)
-    else:
-        node_at = _xy(cx, cy)
+        mirrored = out_x < in_x
+    if mirrored:
+        node_style += ", xscale=-1"
 
     def supply_lead(pin: PinConnection, anchor: str) -> str:
-        """A straight vertical lead from a supply pin down to the body edge,
-        matching how KiCad draws V+/V- pin leads."""
+        """Lead from a supply pin to the body, vertical where possible -
+        the way KiCad draws V+/V- pin leads."""
         px, py = tr.point(pin.position)
-        if placement is None:
-            return f"\\draw ({name}.{anchor}) -- {_xy(px, py)};"
-        ox, oy, xscale, yscale = placement
-        local_x = (px - ox) / xscale + _OPAMP_ANCHOR_X
-        edge = _opamp_edge_y(local_x) * yscale
-        edge_y = oy + edge if anchor == "up" else oy - edge
-        if (anchor == "up" and edge_y >= py) or \
-                (anchor == "down" and edge_y <= py):
-            # Pin sits inside the body outline; fall back to the anchor.
-            return f"\\draw ({name}.{anchor}) -- {_xy(px, py)};"
-        return f"\\draw {_xy(px, py)} -- {_xy(px, edge_y)};"
+        local_x = -(px - cx) if mirrored else (px - cx)
+        edge = _opamp_edge_y(local_x)
+        edge_y = cy + edge if anchor == "up" else cy - edge
+        inside = abs(local_x) < _OPAMP_ANCHOR_X
+        if inside and ((anchor == "up" and py > edge_y)
+                       or (anchor == "down" and py < edge_y)):
+            return f"\\draw {_xy(px, py)} -- {_xy(px, edge_y)};"
+        # Pin sits outside the body outline: route vertically, then across.
+        return f"\\draw ({name}.{anchor}) |- {_xy(px, py)};"
 
-    # Put the label clear of the body *and* of the supply leads above it,
-    # so it never overprints the symbol or its wiring.
-    label_y = max(tr.point(p.position)[1] for p in comp.pins.values()) \
-        if comp.pins else cy
-    if placement is not None:
-        label_y = max(label_y, placement[1] + 0.98 * placement[3])
-    lines = [f"\\node[{node_style}] ({name}) at {node_at} {{}};",
+    # Put the label clear of the body and of anything wired above it.
+    label_y = max([cy + 0.98]
+                  + [tr.point(p.position)[1] for p in comp.pins.values()
+                     if p.net_id >= 0 and p.net_id not in dangling])
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};",
              f"\\node[font=\\small, anchor=south] at "
              f"{_xy(cx, label_y + 0.25)} {{{_box_label(comp)}}};"]
     for number in sorted(comp.pins, key=_pin_sort_key):
@@ -559,8 +545,10 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
                 continue  # supply pin left floating in the schematic
             lines.append(supply_lead(pin, anchor))
         else:
+            # Inputs and output: run across to the pin's x, then square up
+            # to it, so the connecting lead is never a diagonal.
             lines.append(
-                f"\\draw ({name}.{anchor}) -- {tr.coord(pin.position)};")
+                f"\\draw ({name}.{anchor}) -| {tr.coord(pin.position)};")
     return lines
 
 

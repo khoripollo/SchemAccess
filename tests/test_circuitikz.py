@@ -436,15 +436,31 @@ def test_fun6_opamp_supply_leads_are_vertical():
             f"supply lead is not vertical: {line}")
 
 
-def test_fun6_opamp_anchors_land_on_kicad_pins():
-    """The op amp node is pinned to its output pin (anchor=out) and
-    stretched with xscale/yscale so the input anchors land exactly on the
-    KiCad pin positions - leads render as straight joins, not diagonals."""
+def test_fun4_opamp_drawn_at_circuitikz_natural_size():
+    """The symbol is circuitikz's own 'op amp' at its natural size - never
+    stretched to the KiCad pin spacing.  Only a mirrored symbol carries a
+    transform (xscale=-1), and this fixture is not mirrored."""
     tex = _sim_spice_tex()
     opamp_line = next(ln for ln in tex.splitlines() if "op amp" in ln)
-    assert "anchor=out" in opamp_line
-    assert re.search(r"xscale=1\.6\d*", opamp_line), opamp_line
-    assert re.search(r"yscale=1\.3\d*", opamp_line), opamp_line
+    assert "scale" not in opamp_line, opamp_line
+    assert "anchor=" not in opamp_line, opamp_line
+
+
+def test_fun6_opamp_leads_are_right_angled():
+    """Input and output leads square up to the pin instead of running
+    diagonally, so the drawing keeps schematic-style orthogonal wiring."""
+    for fixture in ("sim_spice_opamp.kicad_sch", "opamp_inverting.kicad_sch",
+                    "opamp_partnumber.kicad_sch"):
+        from conftest import load_graph
+
+        tex = circuitikz.generate(load_graph(fixture))
+        leads = [ln for ln in tex.splitlines()
+                 if ln.startswith("\\draw (nU1.")]
+        signal = [ln for ln in leads
+                  if any(a in ln for a in (".+)", ".-)", ".out)"))]
+        assert signal, f"{fixture}: no op-amp signal leads emitted"
+        for line in signal:
+            assert " -| " in line, f"{fixture}: diagonal lead {line}"
 
 
 # ---------------------------------------------------------------------------
