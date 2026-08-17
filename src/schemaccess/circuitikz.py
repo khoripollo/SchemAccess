@@ -106,21 +106,38 @@ def _opamp_edge_y(local_x: float) -> float:
     slope = (0.0 - ay) / (_OPAMP_ANCHOR_X - ax)
     return max(ay + slope * (local_x - ax), 0.0)
 
+# circuitikz draws a JFET's gate lead a third of the way down the channel,
+# whereas KiCad centres it.  These two keys move the drawn gate onto the
+# centre line and straighten the channel, giving the same picture KiCad
+# does.  They do NOT move the shape's '.G' anchor, so a JFET's gate lead is
+# drawn to an explicit point instead (see _JFET_GATE_X below).
+_JFET_SETUP = (
+    r"\ctikzset{tripoles/njfet/gate height 2=0, "
+    r"tripoles/njfet/union height=0}"
+    "\n"
+    r"\ctikzset{tripoles/pjfet/gate height 2=0, "
+    r"tripoles/pjfet/union height=0}"
+)
+#: x offset of the centred gate lead's outer end from the node centre.
+_JFET_GATE_X = 0.98
+
 # Measured circuitikz geometry at natural size (probed with \pgfgetlastxy
 # against circuitikz 1.7).  Per style: the control anchor (B/G), the two
-# channel anchors, the control anchor's y offset from the node centre, and
-# the y offset of the *first* channel anchor.  Note that the p-type shapes
-# put their first channel terminal at the BOTTOM, and that a JFET's gate
-# sits off the centre line - both of which have to be compensated for when
-# placing the node, or the leads come out with a step in them.
+# channel anchors, the control anchor's y offset from the node centre, the
+# y offset of the *first* channel anchor, and - when the shape's control
+# anchor cannot be used - the x offset to draw the control lead from.
+# Note the p-type shapes put their first channel terminal at the BOTTOM.
 _TRANSISTOR_STYLES: Dict[
-        ComponentType, Tuple[str, str, str, str, float, float]] = {
-    ComponentType.TRANSISTOR_NPN: ("npn", "B", "C", "E", 0.0, 0.77),
-    ComponentType.TRANSISTOR_PNP: ("pnp", "B", "C", "E", 0.0, -0.77),
-    ComponentType.NMOS: ("nmos", "G", "D", "S", 0.0, 0.77),
-    ComponentType.PMOS: ("pmos", "G", "D", "S", 0.0, -0.77),
-    ComponentType.NJFET: ("njfet", "G", "D", "S", -0.2695, 0.77),
-    ComponentType.PJFET: ("pjfet", "G", "D", "S", 0.2695, -0.77),
+        ComponentType,
+        Tuple[str, str, str, str, float, float, Optional[float]]] = {
+    ComponentType.TRANSISTOR_NPN: ("npn", "B", "C", "E", 0.0, 0.77, None),
+    ComponentType.TRANSISTOR_PNP: ("pnp", "B", "C", "E", 0.0, -0.77, None),
+    ComponentType.NMOS: ("nmos", "G", "D", "S", 0.0, 0.77, None),
+    ComponentType.PMOS: ("pmos", "G", "D", "S", 0.0, -0.77, None),
+    # Gate centred by _JFET_SETUP, so ctrl_dy is 0 and the lead starts at
+    # the drawn gate's end rather than at the (now stale) '.G' anchor.
+    ComponentType.NJFET: ("njfet", "G", "D", "S", 0.0, 0.77, _JFET_GATE_X),
+    ComponentType.PJFET: ("pjfet", "G", "D", "S", 0.0, -0.77, _JFET_GATE_X),
 }
 
 _TR_CHANNEL_Y = 0.77
@@ -626,7 +643,7 @@ def _emit_transistor(comp: Component, tr: _Transform,
     leads vertical and the control lead horizontal - no diagonals, and the
     symbol keeps circuitikz's natural size.
     """
-    style, control, first, second, ctrl_dy, first_dy = \
+    style, control, first, second, ctrl_dy, first_dy, ctrl_x = \
         _TRANSISTOR_STYLES[comp.ctype]
     anchors = (control, first, second)
     name = _node_name(comp.ref)
@@ -682,9 +699,16 @@ def _emit_transistor(comp: Component, tr: _Transform,
         if anchor == control:
             anchor_y = cy + (-ctrl_dy if flipped else ctrl_dy)
             joiner = "--" if abs(py - anchor_y) < 5e-3 else "|-"
+            if ctrl_x is not None:
+                # The shape's control anchor is not where the gate is
+                # actually drawn, so start from the drawn gate's end.
+                start = _xy(cx + (ctrl_x if mirrored else -ctrl_x), anchor_y)
+            else:
+                start = f"({name}.{anchor})"
         else:
             joiner = "--" if abs(px - cx) < 5e-3 else "-|"
-        lines.append(f"\\draw ({name}.{anchor}) {joiner} {_xy(px, py)};")
+            start = f"({name}.{anchor})"
+        lines.append(f"\\draw {start} {joiner} {_xy(px, py)};")
     return lines
 
 
@@ -977,6 +1001,8 @@ def generate(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
         f"% {n_comp} components, {n_nets} nets",
         r"\documentclass[border=4pt]{standalone}",
         r"\usepackage[RPvoltages]{circuitikz}",
+        r"% Centre JFET gate leads, the way KiCad draws them.",
+        _JFET_SETUP,
         r"\begin{document}",
         generate_body(graph, junction_dots=junction_dots),
         r"\end{document}",

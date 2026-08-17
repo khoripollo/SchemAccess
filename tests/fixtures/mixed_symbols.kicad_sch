@@ -2826,6 +2826,226 @@
 			)
 			(embedded_fonts no)
 		)
+		(symbol "Transistor_FET:BF545B"
+			(pin_names
+				(hide yes)
+			)
+			(exclude_from_sim no)
+			(in_bom yes)
+			(on_board yes)
+			(in_pos_files yes)
+			(duplicate_pin_numbers_are_jumpers no)
+			(property "Reference" "Q"
+				(at 5.08 1.905 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Value" "BF545B"
+				(at 5.08 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
+				(at 5.08 -1.905 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+						(italic yes)
+					)
+					(justify left)
+				)
+			)
+			(property "Datasheet" "https://www.nxp.com/docs/en/data-sheet/BF545A_BF545B_BF545C.pdf"
+				(at 5.08 -3.81 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+					(justify left)
+				)
+			)
+			(property "Description" "15mA Idss, 30V Vgs, N-Channel JFET, SOT-23"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_keywords" "N-Channel FET Transistor Low Voltage"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(property "ki_fp_filters" "SOT?23*"
+				(at 0 0 0)
+				(show_name no)
+				(do_not_autoplace no)
+				(hide yes)
+				(effects
+					(font
+						(size 1.27 1.27)
+					)
+				)
+			)
+			(symbol "BF545B_0_1"
+				(polyline
+					(pts
+						(xy 0 0) (xy -1.016 0.381) (xy -1.016 -0.381) (xy 0 0)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type outline)
+					)
+				)
+				(polyline
+					(pts
+						(xy 0.254 1.905) (xy 0.254 -1.905)
+					)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 0.254 0) (xy -2.54 0)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(circle
+					(center 1.27 0)
+					(radius 2.8194)
+					(stroke
+						(width 0.254)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.54 2.54) (xy 2.54 1.397) (xy 0.254 1.397)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+				(polyline
+					(pts
+						(xy 2.54 -2.54) (xy 2.54 -1.397) (xy 0.254 -1.397)
+					)
+					(stroke
+						(width 0)
+						(type default)
+					)
+					(fill
+						(type none)
+					)
+				)
+			)
+			(symbol "BF545B_1_1"
+				(pin passive line
+					(at 2.54 -5.08 90)
+					(length 2.54)
+					(name "S"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "1"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin passive line
+					(at 2.54 5.08 270)
+					(length 2.54)
+					(name "D"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "2"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+				(pin input line
+					(at -5.08 0 0)
+					(length 2.54)
+					(name "G"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+					(number "3"
+						(effects
+							(font
+								(size 1.27 1.27)
+							)
+						)
+					)
+				)
+			)
+			(embedded_fonts no)
+		)
 		(symbol "power:Earth"
 			(power global)
 			(pin_numbers
@@ -2979,6 +3199,12 @@
 		)
 	)
 	(junction
+		(at 129.54 144.78)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "0ac5d707-173f-49df-b08c-50c73629741f")
+	)
+	(junction
 		(at 105.41 90.17)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3003,28 +3229,28 @@
 		(uuid "44732af9-9310-41ce-bd39-464fa366788a")
 	)
 	(junction
+		(at 133.35 140.97)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "47d37fef-8289-4798-ab01-3ff648f4c268")
+	)
+	(junction
 		(at 115.57 90.17)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "4bb58008-d590-4528-a2c0-4476088fee4f")
 	)
 	(junction
-		(at 133.35 144.78)
+		(at 144.78 140.97)
 		(diameter 0)
 		(color 0 0 0 0)
-		(uuid "5a914fbd-3033-4543-8215-a8979917599e")
+		(uuid "59e49dc2-670b-43d0-b02f-54d83e9d0d62")
 	)
 	(junction
 		(at 88.9 90.17)
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "60d2ff00-7c99-44d9-9306-f6c73eee6874")
-	)
-	(junction
-		(at 148.59 120.65)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "6a307c78-9880-45e1-bed2-191d081a951e")
 	)
 	(junction
 		(at 133.35 127)
@@ -3039,6 +3265,12 @@
 		(uuid "7728a91f-ca30-4e36-bac9-8a489b1f3e14")
 	)
 	(junction
+		(at 135.89 140.97)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "8946e2ea-3150-4526-aae5-17fd3cb9cfd4")
+	)
+	(junction
 		(at 105.41 107.95)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3049,6 +3281,12 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "9e08def8-f266-4dbf-aff4-ce64cbaaecfb")
+	)
+	(junction
+		(at 151.13 120.65)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "a546acf0-efb9-40d7-b777-619af45725e5")
 	)
 	(junction
 		(at 128.27 102.87)
@@ -3067,12 +3305,6 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "b726f845-a113-4713-8e47-b891617e5e3c")
-	)
-	(junction
-		(at 140.97 127)
-		(diameter 0)
-		(color 0 0 0 0)
-		(uuid "bd9c9da7-bc64-42f2-882c-dfa26df5a86d")
 	)
 	(junction
 		(at 88.9 107.95)
@@ -3099,6 +3331,12 @@
 		(uuid "e4dede64-ac27-4fc8-860b-19202ade95e3")
 	)
 	(junction
+		(at 143.51 127)
+		(diameter 0)
+		(color 0 0 0 0)
+		(uuid "e93d258d-ff6a-49e5-b70d-8a8904abf61b")
+	)
+	(junction
 		(at 107.95 90.17)
 		(diameter 0)
 		(color 0 0 0 0)
@@ -3109,6 +3347,16 @@
 		(diameter 0)
 		(color 0 0 0 0)
 		(uuid "f7bf9d1e-497b-4af7-b706-7707c4b1cbca")
+	)
+	(wire
+		(pts
+			(xy 129.54 144.78) (xy 133.35 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "0ce3243f-39f6-443a-8e54-587c669b3a13")
 	)
 	(wire
 		(pts
@@ -3152,7 +3400,17 @@
 	)
 	(wire
 		(pts
-			(xy 133.35 127) (xy 140.97 127)
+			(xy 133.35 140.97) (xy 133.35 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "2dba2c5c-21fb-4d1e-abf1-3bdebf124c05")
+	)
+	(wire
+		(pts
+			(xy 133.35 127) (xy 143.51 127)
 		)
 		(stroke
 			(width 0)
@@ -3199,6 +3457,16 @@
 			(type default)
 		)
 		(uuid "3d18c409-c936-48ad-b708-55f8ef54f53c")
+	)
+	(wire
+		(pts
+			(xy 144.78 152.4) (xy 144.78 154.94)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "3e1d2b6d-3743-4623-bd2c-7cf26838612b")
 	)
 	(wire
 		(pts
@@ -3279,6 +3547,26 @@
 			(type default)
 		)
 		(uuid "6068ce64-54ec-49b9-8213-17a7aa78f99c")
+	)
+	(wire
+		(pts
+			(xy 135.89 140.97) (xy 144.78 140.97)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "627e95ed-c33d-4ced-b535-22dbcda5632d")
+	)
+	(wire
+		(pts
+			(xy 144.78 140.97) (xy 144.78 142.24)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "65d69aa4-feef-407a-9ed6-890674d61192")
 	)
 	(wire
 		(pts
@@ -3432,6 +3720,16 @@
 	)
 	(wire
 		(pts
+			(xy 135.89 147.32) (xy 135.89 140.97)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9b9dbf7c-ce74-40c0-ae64-8dc146998f44")
+	)
+	(wire
+		(pts
 			(xy 80.01 102.87) (xy 80.01 107.95)
 		)
 		(stroke
@@ -3442,6 +3740,16 @@
 	)
 	(wire
 		(pts
+			(xy 144.78 154.94) (xy 129.54 154.94)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "9d13a582-ca3c-48d6-9274-38264fc3db62")
+	)
+	(wire
+		(pts
 			(xy 161.29 107.95) (xy 161.29 115.57)
 		)
 		(stroke
@@ -3449,6 +3757,16 @@
 			(type default)
 		)
 		(uuid "a2a21e08-158e-4ea4-957c-e2c491f74840")
+	)
+	(wire
+		(pts
+			(xy 137.16 147.32) (xy 135.89 147.32)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "a782d844-d07e-4747-be45-6de56c39baa5")
 	)
 	(wire
 		(pts
@@ -3472,7 +3790,7 @@
 	)
 	(wire
 		(pts
-			(xy 140.97 139.7) (xy 140.97 127)
+			(xy 143.51 135.89) (xy 143.51 127)
 		)
 		(stroke
 			(width 0)
@@ -3482,7 +3800,7 @@
 	)
 	(wire
 		(pts
-			(xy 125.73 144.78) (xy 133.35 144.78)
+			(xy 125.73 144.78) (xy 129.54 144.78)
 		)
 		(stroke
 			(width 0)
@@ -3532,7 +3850,17 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 120.65) (xy 146.05 120.65)
+			(xy 129.54 154.94) (xy 129.54 144.78)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "b74e8d0c-6ed4-411c-ad51-04d9f74a5be7")
+	)
+	(wire
+		(pts
+			(xy 146.05 120.65) (xy 151.13 120.65)
 		)
 		(stroke
 			(width 0)
@@ -3572,7 +3900,7 @@
 	)
 	(wire
 		(pts
-			(xy 133.35 127) (xy 133.35 144.78)
+			(xy 133.35 127) (xy 133.35 140.97)
 		)
 		(stroke
 			(width 0)
@@ -3592,7 +3920,7 @@
 	)
 	(wire
 		(pts
-			(xy 148.59 120.65) (xy 148.59 134.62)
+			(xy 151.13 120.65) (xy 151.13 130.81)
 		)
 		(stroke
 			(width 0)
@@ -3602,13 +3930,13 @@
 	)
 	(wire
 		(pts
-			(xy 140.97 127) (xy 146.05 127)
+			(xy 143.51 127) (xy 146.05 127)
 		)
 		(stroke
 			(width 0)
 			(type default)
 		)
-		(uuid "cca51095-7199-47cf-9bd7-a42b68f7bcd9")
+		(uuid "d10a9531-efca-4472-a867-79b081e3ed16")
 	)
 	(wire
 		(pts
@@ -3622,7 +3950,7 @@
 	)
 	(wire
 		(pts
-			(xy 133.35 144.78) (xy 148.59 144.78)
+			(xy 133.35 140.97) (xy 135.89 140.97)
 		)
 		(stroke
 			(width 0)
@@ -3639,6 +3967,16 @@
 			(type default)
 		)
 		(uuid "d8d750e4-147c-4c75-bfdb-44c172ec1650")
+	)
+	(wire
+		(pts
+			(xy 144.78 140.97) (xy 151.13 140.97)
+		)
+		(stroke
+			(width 0)
+			(type default)
+		)
+		(uuid "d94446c9-306c-4196-9176-0d9a7432916b")
 	)
 	(wire
 		(pts
@@ -3682,7 +4020,7 @@
 	)
 	(wire
 		(pts
-			(xy 153.67 120.65) (xy 148.59 120.65)
+			(xy 153.67 120.65) (xy 151.13 120.65)
 		)
 		(stroke
 			(width 0)
@@ -4269,6 +4607,94 @@
 		)
 	)
 	(symbol
+		(lib_id "Transistor_FET:BF545B")
+		(at 142.24 147.32 0)
+		(unit 1)
+		(body_style 1)
+		(exclude_from_sim no)
+		(in_bom yes)
+		(on_board yes)
+		(in_pos_files yes)
+		(dnp no)
+		(fields_autoplaced yes)
+		(uuid "69a6d7bc-a487-41c0-9bf9-38e4bc1a305f")
+		(property "Reference" "Q4"
+			(at 147.32 146.0499 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Value" "BF545B"
+			(at 147.32 148.5899 0)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Footprint" "Package_TO_SOT_SMD:SOT-23"
+			(at 147.32 149.225 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+					(italic yes)
+				)
+				(justify left)
+			)
+		)
+		(property "Datasheet" "https://www.nxp.com/docs/en/data-sheet/BF545A_BF545B_BF545C.pdf"
+			(at 147.32 151.13 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+				(justify left)
+			)
+		)
+		(property "Description" "15mA Idss, 30V Vgs, N-Channel JFET, SOT-23"
+			(at 142.24 147.32 0)
+			(hide yes)
+			(show_name no)
+			(do_not_autoplace no)
+			(effects
+				(font
+					(size 1.27 1.27)
+				)
+			)
+		)
+		(pin "2"
+			(uuid "d0fa70ff-f5cc-403b-9db2-b31e37c76d7e")
+		)
+		(pin "3"
+			(uuid "7f0ed3dc-6dbc-48f7-ac84-d834e1681b25")
+		)
+		(pin "1"
+			(uuid "9c997c42-4841-4402-b16e-e166e2cab8f3")
+		)
+		(instances
+			(project "Testing"
+				(path "/339a58e5-d3b3-42c1-934c-33ac2c9bf58f"
+					(reference "Q4")
+					(unit 1)
+				)
+			)
+		)
+	)
+	(symbol
 		(lib_id "Device:R")
 		(at 80.01 99.06 0)
 		(unit 1)
@@ -4544,6 +4970,7 @@
 		(uuid "b48de5ff-8a8a-4517-bff9-00a5ee2b6794")
 		(property "Reference" "T1"
 			(at 115.5827 129.54 0)
+			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4554,6 +4981,7 @@
 		)
 		(property "Value" "Transformer_1P_1S"
 			(at 115.5827 132.08 0)
+			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4797,7 +5225,7 @@
 	)
 	(symbol
 		(lib_id "Transistor_FET:BF244A")
-		(at 146.05 139.7 0)
+		(at 148.59 135.89 0)
 		(unit 1)
 		(body_style 1)
 		(exclude_from_sim no)
@@ -4808,7 +5236,7 @@
 		(fields_autoplaced yes)
 		(uuid "dd7c3cca-598c-4a02-8589-5de5d46fb207")
 		(property "Reference" "Q3"
-			(at 151.13 138.4299 0)
+			(at 153.67 134.6199 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4819,7 +5247,7 @@
 			)
 		)
 		(property "Value" "BF244A"
-			(at 151.13 140.9699 0)
+			(at 153.67 137.1599 0)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -4830,7 +5258,7 @@
 			)
 		)
 		(property "Footprint" "Package_TO_SOT_THT:TO-92_Inline"
-			(at 151.13 141.605 0)
+			(at 153.67 137.795 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4843,7 +5271,7 @@
 			)
 		)
 		(property "Datasheet" "https://media.digikey.com/pdf/Data%20Sheets/Fairchild%20PDFs/BF244x.pdf"
-			(at 151.13 143.51 0)
+			(at 153.67 139.7 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -4855,7 +5283,7 @@
 			)
 		)
 		(property "Description" "50mA Id, 30V Vgs, N-Channel FET Transistor, TO-92"
-			(at 146.05 139.7 0)
+			(at 148.59 135.89 0)
 			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
@@ -5203,6 +5631,7 @@
 		(uuid "f855573c-cca9-4ae7-9afa-c569495b27fa")
 		(property "Reference" "SW1"
 			(at 96.52 99.0599 90)
+			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects
@@ -5214,6 +5643,7 @@
 		)
 		(property "Value" "SW_DPST_x2"
 			(at 96.52 101.5999 90)
+			(hide yes)
 			(show_name no)
 			(do_not_autoplace no)
 			(effects

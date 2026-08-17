@@ -1,10 +1,10 @@
 {
   "mixed_symbols.kicad_sch": {
-    "components": 14,
+    "components": 15,
     "nets": 10,
     "ground": true,
     "power_symbols": 3,
-    "description": "Wide symbol coverage: NPN, PNP, N-channel JFET (BF244A), 1P/1S transformer, behavioural (controlled) source, two op amps, DPST switch, diode, R/L/C."
+    "description": "Wide symbol coverage: NPN, PNP, two N-channel JFETs (BF244A identified by part-number family, BF545B by its description), 1P/1S transformer, behavioural (controlled) source, two op amps, DPST switch, diode, R/L/C."
   },
   "hidden_fields.kicad_sch": {
     "components": 2,
