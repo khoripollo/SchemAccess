@@ -445,3 +445,45 @@ def test_fun6_opamp_anchors_land_on_kicad_pins():
     assert "anchor=out" in opamp_line
     assert re.search(r"xscale=1\.6\d*", opamp_line), opamp_line
     assert re.search(r"yscale=1\.3\d*", opamp_line), opamp_line
+
+
+# ---------------------------------------------------------------------------
+# Junction-dot option: dots are drawn by default and can be switched off
+# without changing any wiring or component placement.
+# ---------------------------------------------------------------------------
+
+@pytest.mark.parametrize("name", VALID_FIXTURES)
+def test_junction_dots_present_by_default(name, load) -> None:
+    """Every junction in the source appears as a node[circ] marker."""
+    graph = load(name)
+    tex = circuitikz.generate(graph)
+    expected = len(graph.document.junctions) if graph.document else 0
+    assert tex.count("node[circ]") == expected
+
+
+@pytest.mark.parametrize("name", VALID_FIXTURES)
+def test_junction_dots_can_be_disabled(name, load) -> None:
+    """junction_dots=False removes every dot and nothing else."""
+    graph = load(name)
+    with_dots = circuitikz.generate(graph).splitlines()
+    without = circuitikz.generate(graph, junction_dots=False).splitlines()
+    assert "node[circ]" not in "\n".join(without)
+    # The remaining document is identical line for line.
+    kept = [ln for ln in with_dots
+            if "node[circ]" not in ln and ln != "% Junctions"]
+    assert kept == without
+
+
+def test_junction_dot_option_flows_through_pipeline(tmp_path) -> None:
+    """The pipeline option reaches the generated .tex file."""
+    from conftest import FIXTURES_DIR
+    from schemaccess.pipeline import PipelineOptions, run_pipeline
+
+    source = str(FIXTURES_DIR / "rc_divider.kicad_sch")
+    for dots in (True, False):
+        out = tmp_path / f"dots_{dots}"
+        result = run_pipeline(PipelineOptions(
+            input_path=source, output_dir=str(out),
+            generate_alt_text=False, generate_image=True,
+            export_format="pdf", junction_dots=dots))
+        assert ("node[circ]" in result.tikz_code) is dots

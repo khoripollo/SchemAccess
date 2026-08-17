@@ -40,6 +40,7 @@ class PipelineOptions:
     export_format: str = "all"          # pdf | svg | png | all
     detail_level: str = "standard"      # short | standard | detailed
     basename: str = ""                  # default: input file stem
+    junction_dots: bool = True          # draw KiCad connection dots
 
 
 @dataclass
@@ -107,7 +108,8 @@ def run_pipeline(options: PipelineOptions,
     # ---- CircuiTikZ + rendering -----------------------------------------
     if options.generate_image:
         say("Generating CircuiTikZ...")
-        result.tikz_code = circuitikz.generate(graph)
+        result.tikz_code = circuitikz.generate(
+            graph, junction_dots=options.junction_dots)
         tex_path = os.path.join(options.output_dir, f"{stem}.tex")
         try:
             with open(tex_path, "w", encoding="utf-8") as fh:

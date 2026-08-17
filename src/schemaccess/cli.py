@@ -37,6 +37,7 @@ examples:
   schemaccess board.kicad_sch
   schemaccess board.kicad_sch -o out --format svg --detail detailed
   schemaccess board.kicad_sch --no-image --print-alt --quiet
+  schemaccess board.kicad_sch --no-junction-dots --format pdf
 """
 
 
@@ -93,6 +94,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="alt-text detail level (default: %(default)s)",
     )
     parser.add_argument(
+        "--no-junction-dots",
+        action="store_true",
+        help="omit the connection dots drawn where wires meet "
+             "(they are included by default, as KiCad draws them)",
+    )
+    parser.add_argument(
         "--print-alt",
         action="store_true",
         help="also print the generated alt text to stdout",
@@ -142,6 +149,7 @@ def main(argv: list[str] | None = None) -> int:
         generate_image=not args.no_image,
         export_format=args.format,
         detail_level=args.detail,
+        junction_dots=not args.no_junction_dots,
     )
 
     if args.no_alt_text and args.no_image:

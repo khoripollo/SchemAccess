@@ -70,6 +70,7 @@ def make_pipeline_options(
     generate_image: bool,
     export_format_label: str,
     detail_label: str,
+    junction_dots: bool = True,
 ) -> PipelineOptions:
     """Translate GUI widget state into a :class:`PipelineOptions`.
 
@@ -86,6 +87,7 @@ def make_pipeline_options(
         generate_image=generate_image,
         export_format=FORMAT_VALUES.get(export_format_label, "all"),
         detail_level=DETAIL_VALUES.get(detail_label, "standard"),
+        junction_dots=junction_dots,
     )
 
 
@@ -219,12 +221,22 @@ class MainWindow(QMainWindow):
             "Detailed. Only used when Generate Alt Text is checked.")
         self.detail_label.setBuddy(self.detail_combo)
 
+        self.junction_check = QCheckBox("Show &junction dots", options_group)
+        self.junction_check.setChecked(True)
+        self.junction_check.setAccessibleName("Show junction dots")
+        self.junction_check.setAccessibleDescription(
+            "When checked, a filled dot is drawn where three or more wires "
+            "meet, as KiCad does. Uncheck for a cleaner drawing; wiring and "
+            "the alt text are unchanged either way.")
+        self.junction_check.toggled.connect(self._on_option_toggled)
+
         options_layout.addWidget(self.alt_text_check, 0, 0)
         options_layout.addWidget(self.image_check, 0, 1)
         options_layout.addWidget(self.detail_label, 1, 0)
         options_layout.addWidget(self.detail_combo, 1, 1)
         options_layout.addWidget(self.format_label, 2, 0)
         options_layout.addWidget(self.format_combo, 2, 1)
+        options_layout.addWidget(self.junction_check, 3, 0, 1, 2)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -324,7 +336,8 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.alt_text_check, self.image_check)
         QWidget.setTabOrder(self.image_check, self.detail_combo)
         QWidget.setTabOrder(self.detail_combo, self.format_combo)
-        QWidget.setTabOrder(self.format_combo, self.output_edit)
+        QWidget.setTabOrder(self.format_combo, self.junction_check)
+        QWidget.setTabOrder(self.junction_check, self.output_edit)
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
         QWidget.setTabOrder(self.generate_button, self.progress_log)
@@ -350,6 +363,8 @@ class MainWindow(QMainWindow):
         detail = str(s.value("options/detail_level", "Standard", type=str))
         if detail in DETAIL_LABELS:
             self.detail_combo.setCurrentText(detail)
+        self.junction_check.setChecked(
+            bool(s.value("options/junction_dots", True, type=bool)))
 
     def _save_settings(self) -> None:
         """Persist UI state to QSettings."""
@@ -361,6 +376,7 @@ class MainWindow(QMainWindow):
         s.setValue("options/generate_image", self.image_check.isChecked())
         s.setValue("options/export_format", self.format_combo.currentText())
         s.setValue("options/detail_level", self.detail_combo.currentText())
+        s.setValue("options/junction_dots", self.junction_check.isChecked())
         s.sync()
 
     # --------------------------------------------------------- interactions
@@ -425,6 +441,7 @@ class MainWindow(QMainWindow):
             generate_image=self.image_check.isChecked(),
             export_format_label=self.format_combo.currentText(),
             detail_label=self.detail_combo.currentText(),
+            junction_dots=self.junction_check.isChecked(),
         )
 
     # ------------------------------------------------------------- pipeline

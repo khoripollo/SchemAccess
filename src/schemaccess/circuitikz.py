@@ -739,8 +739,14 @@ def _emit_labels(doc: SchematicDocument, tr: _Transform) -> List[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_body(graph: CircuitGraph) -> str:
-    """Return only the ``\\begin{circuitikz}...\\end{circuitikz}`` body."""
+def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
+    """Return only the ``\\begin{circuitikz}...\\end{circuitikz}`` body.
+
+    Set *junction_dots* to False to omit the filled dots KiCad draws where
+    three or more wires meet.  Connectivity is unchanged either way, but
+    the dots are what visually distinguish a connection from a crossing,
+    so they are on by default.
+    """
     doc = graph.document if graph.document is not None else SchematicDocument()
     tr = _Transform(graph)
     warnings: List[str] = []
@@ -776,7 +782,7 @@ def generate_body(graph: CircuitGraph) -> str:
         lines.append("% Wires")
         lines.extend(wire_lines)
 
-    junction_lines = _emit_junctions(doc, tr)
+    junction_lines = _emit_junctions(doc, tr) if junction_dots else []
     if junction_lines:
         lines.append("% Junctions")
         lines.extend(junction_lines)
@@ -812,12 +818,13 @@ def generate_body(graph: CircuitGraph) -> str:
     return "\n".join(lines)
 
 
-def generate(graph: CircuitGraph) -> str:
+def generate(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
     """Return a complete standalone LaTeX document (circuitikz) for *graph*.
 
     The document compiles with ``pdflatex`` without modification, preserves
     the schematic layout, labels and values, and is deterministic for
-    identical inputs.
+    identical inputs.  Pass ``junction_dots=False`` to omit the connection
+    dots at multi-wire nodes.
     """
     doc = graph.document
     if doc is not None and doc.source_path:
@@ -832,7 +839,7 @@ def generate(graph: CircuitGraph) -> str:
         r"\documentclass[border=4pt]{standalone}",
         r"\usepackage[RPvoltages]{circuitikz}",
         r"\begin{document}",
-        generate_body(graph),
+        generate_body(graph, junction_dots=junction_dots),
         r"\end{document}",
         "",
     ])

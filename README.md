@@ -141,6 +141,9 @@ The main window walkthrough, top to bottom:
      Enabled only while *Generate Alt Text* is checked.
    - **Export format** (Alt+E): *PDF*, *SVG*, *PNG* or *All*. Enabled only
      while *Generate Image* is checked.
+   - **Show junction dots** (Alt+J): draw the filled dot where three or more
+     wires meet, as KiCad does. On by default; uncheck for a cleaner drawing.
+     Wiring and alt text are unchanged either way.
 3. **Output Folder** — defaults to an `accessible` folder next to the input
    file; click **Choose...** (Alt+H) to change it.
 4. **Generate** (Alt+G) — runs the conversion in the background. The button
@@ -172,6 +175,7 @@ schemaccess INPUT.kicad_sch [options]
 | `--no-image` | Skip CircuiTikZ/LaTeX and rendered images |
 | `-f`, `--format {pdf,svg,png,all}` | Image format(s) to render (default: `all`) |
 | `-d`, `--detail {short,standard,detailed}` | Alt-text detail level (default: `standard`) |
+| `--no-junction-dots` | Omit the connection dots drawn where wires meet (included by default, as KiCad draws them) |
 | `--print-alt` | Also print the generated alt text to stdout |
 | `-q`, `--quiet` | Suppress progress and `wrote:` lines (warnings/errors still go to stderr) |
 | `--version` | Show the version and exit |
@@ -185,6 +189,7 @@ Examples:
 schemaccess board.kicad_sch
 schemaccess board.kicad_sch -o out --format svg --detail detailed
 schemaccess board.kicad_sch --no-image --print-alt --quiet
+schemaccess board.kicad_sch --no-junction-dots --format pdf
 ```
 
 Giving both `--no-alt-text` and `--no-image` produces no files but still
