@@ -436,31 +436,74 @@ def test_fun6_opamp_supply_leads_are_vertical():
             f"supply lead is not vertical: {line}")
 
 
-def test_fun4_opamp_drawn_at_circuitikz_natural_size():
-    """The symbol is circuitikz's own 'op amp' at its natural size - never
-    stretched to the KiCad pin spacing.  Only a mirrored symbol carries a
-    transform (xscale=-1), and this fixture is not mirrored."""
-    tex = _sim_spice_tex()
-    opamp_line = next(ln for ln in tex.splitlines() if "op amp" in ln)
-    assert "scale" not in opamp_line, opamp_line
-    assert "anchor=" not in opamp_line, opamp_line
+_SCALE_RE = re.compile(r"xscale=(-?[\d.]+), yscale=([\d.]+)")
 
 
-def test_fun6_opamp_leads_are_right_angled():
-    """Input and output leads square up to the pin instead of running
-    diagonally, so the drawing keeps schematic-style orthogonal wiring."""
+def test_fun4_opamp_uses_circuitikz_shape_undistorted():
+    """The symbol is circuitikz's own 'op amp'.  Any scaling is UNIFORM -
+    the triangle keeps its proportions and is never stretched in one axis
+    the way matching the pin spacing exactly would require."""
     for fixture in ("sim_spice_opamp.kicad_sch", "opamp_inverting.kicad_sch",
                     "opamp_partnumber.kicad_sch"):
         from conftest import load_graph
 
         tex = circuitikz.generate(load_graph(fixture))
-        leads = [ln for ln in tex.splitlines()
-                 if ln.startswith("\\draw (nU1.")]
-        signal = [ln for ln in leads
-                  if any(a in ln for a in (".+)", ".-)", ".out)"))]
+        line = next(ln for ln in tex.splitlines() if "op amp" in ln)
+        assert "anchor=" not in line, f"{fixture}: {line}"
+        match = _SCALE_RE.search(line)
+        if match is None:
+            continue  # natural size, nothing to check
+        xs, ys = abs(float(match.group(1))), float(match.group(2))
+        assert abs(xs - ys) < 1e-6, f"{fixture}: non-uniform scale {line}"
+        assert 0.5 <= ys <= 2.5, f"{fixture}: extreme scale {line}"
+
+
+def test_fun6_opamp_input_leads_are_straight():
+    """After the uniform scaling the anchors sit at the KiCad pin heights,
+    so input and output leads are plain straight segments (no jog)."""
+    for fixture in ("sim_spice_opamp.kicad_sch", "opamp_inverting.kicad_sch",
+                    "opamp_partnumber.kicad_sch"):
+        from conftest import load_graph
+
+        tex = circuitikz.generate(load_graph(fixture))
+        signal = [ln for ln in tex.splitlines()
+                  if ln.startswith("\\draw (nU1.")
+                  and any(a in ln for a in (".+)", ".-)", ".out)"))]
         assert signal, f"{fixture}: no op-amp signal leads emitted"
         for line in signal:
-            assert " -| " in line, f"{fixture}: diagonal lead {line}"
+            assert " -- " in line, f"{fixture}: lead needs a jog: {line}"
+
+
+def test_fun6_opamp_straight_leads_are_truly_horizontal():
+    """A '--' lead is only safe when the anchor really sits at the pin's
+    height.  Recompute each anchor's y from the emitted node placement and
+    check it against the lead's endpoint, so a diagonal cannot slip in."""
+    from schemaccess.circuitikz import _OPAMP_INPUT_HALF
+
+    for fixture in ("sim_spice_opamp.kicad_sch", "opamp_inverting.kicad_sch",
+                    "opamp_partnumber.kicad_sch"):
+        from conftest import load_graph
+
+        tex = circuitikz.generate(load_graph(fixture))
+        node_line = next(ln for ln in tex.splitlines() if "op amp" in ln)
+        node_y = float(_COORD_RE.findall(node_line)[-1][1])
+        scale_match = _SCALE_RE.search(node_line)
+        scale = float(scale_match.group(2)) if scale_match else 1.0
+        noinv_up = "noinv input up" in node_line
+        offsets = {
+            "+": _OPAMP_INPUT_HALF * scale * (1 if noinv_up else -1),
+            "-": _OPAMP_INPUT_HALF * scale * (-1 if noinv_up else 1),
+            "out": 0.0,
+        }
+        for line in tex.splitlines():
+            if not line.startswith("\\draw (nU1.") or " -- " not in line:
+                continue
+            anchor = line.split("nU1.", 1)[1].split(")", 1)[0]
+            if anchor not in offsets:
+                continue
+            end_y = float(_COORD_RE.findall(line)[-1][1])
+            assert abs((node_y + offsets[anchor]) - end_y) < 0.01, (
+                f"{fixture}: '{anchor}' lead is diagonal: {line}")
 
 
 # ---------------------------------------------------------------------------

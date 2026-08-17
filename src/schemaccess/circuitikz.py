@@ -495,26 +495,46 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             pin_y = tr.point(comp.pins[number].position)[1]
             matched[number] = "up" if pin_y >= cy else "down"
 
-    # The symbol is drawn at circuitikz's own natural size (the size a
-    # LaTeX author gets from a plain '\node[op amp]'), centred on the
-    # KiCad symbol origin - not stretched to the pin spacing.  Only a
-    # mirrored symbol (output on the left) needs a transform.
+    # circuitikz's own 'op amp' shape, scaled UNIFORMLY (never stretched,
+    # so the triangle keeps its proper proportions) by just enough that
+    # its input anchors sit at the KiCad input-pin heights.  The leads
+    # into the inputs and the output are then straight horizontal lines,
+    # exactly as in a hand-written circuitikz figure.
     mirrored = False
     if out_no is not None and plus_no is not None and minus_no is not None:
         out_x = tr.point(comp.pins[out_no].position)[0]
         in_x = (tr.point(comp.pins[plus_no].position)[0]
                 + tr.point(comp.pins[minus_no].position)[0]) / 2.0
         mirrored = out_x < in_x
-    if mirrored:
-        node_style += ", xscale=-1"
+
+    scale = 1.0
+    node_y = cy
+    if plus_y is not None and minus_y is not None:
+        wanted = abs(plus_y - minus_y) / 2.0
+        if wanted > 0.05:
+            scale = min(max(wanted / _OPAMP_INPUT_HALF, 0.5), 2.5)
+        node_y = (plus_y + minus_y) / 2.0
+    if abs(scale - 1.0) > 1e-3 or mirrored:
+        node_style += (f", xscale={_fmt(-scale if mirrored else scale)}"
+                       f", yscale={_fmt(scale)}")
+
+    def anchor_y(anchor: str) -> float:
+        """Absolute y of an input/output anchor after placement."""
+        if anchor == "+":
+            return node_y + _OPAMP_INPUT_HALF * scale * (
+                1.0 if "noinv input up" in node_style else -1.0)
+        if anchor == "-":
+            return node_y + _OPAMP_INPUT_HALF * scale * (
+                -1.0 if "noinv input up" in node_style else 1.0)
+        return node_y  # 'out' sits on the centre line
 
     def supply_lead(pin: PinConnection, anchor: str) -> str:
         """Lead from a supply pin to the body, vertical where possible -
         the way KiCad draws V+/V- pin leads."""
         px, py = tr.point(pin.position)
-        local_x = -(px - cx) if mirrored else (px - cx)
-        edge = _opamp_edge_y(local_x)
-        edge_y = cy + edge if anchor == "up" else cy - edge
+        local_x = (-(px - cx) if mirrored else (px - cx)) / scale
+        edge = _opamp_edge_y(local_x) * scale
+        edge_y = node_y + edge if anchor == "up" else node_y - edge
         inside = abs(local_x) < _OPAMP_ANCHOR_X
         if inside and ((anchor == "up" and py > edge_y)
                        or (anchor == "down" and py < edge_y)):
@@ -523,10 +543,10 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
         return f"\\draw ({name}.{anchor}) |- {_xy(px, py)};"
 
     # Put the label clear of the body and of anything wired above it.
-    label_y = max([cy + 0.98]
+    label_y = max([node_y + 0.98 * scale]
                   + [tr.point(p.position)[1] for p in comp.pins.values()
                      if p.net_id >= 0 and p.net_id not in dangling])
-    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, cy)} {{}};",
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, node_y)} {{}};",
              f"\\node[font=\\small, anchor=south] at "
              f"{_xy(cx, label_y + 0.25)} {{{_box_label(comp)}}};"]
     for number in sorted(comp.pins, key=_pin_sort_key):
@@ -545,10 +565,14 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
                 continue  # supply pin left floating in the schematic
             lines.append(supply_lead(pin, anchor))
         else:
-            # Inputs and output: run across to the pin's x, then square up
-            # to it, so the connecting lead is never a diagonal.
+            # Inputs and output: a straight horizontal lead when the anchor
+            # already sits at the pin's height (the normal case after the
+            # uniform scaling above), otherwise square up to it so the
+            # connection is never a diagonal.
+            py = tr.point(pin.position)[1]
+            joiner = "--" if abs(anchor_y(anchor) - py) < 5e-3 else "-|"
             lines.append(
-                f"\\draw ({name}.{anchor}) -| {tr.coord(pin.position)};")
+                f"\\draw ({name}.{anchor}) {joiner} {tr.coord(pin.position)};")
     return lines
 
 
