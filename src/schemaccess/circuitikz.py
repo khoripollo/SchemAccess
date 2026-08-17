@@ -143,8 +143,10 @@ _JFET_GATE_END = -5.08      # outer end of the gate lead (on the centre line)
 _JFET_ARROW_TIP = -2.54     # gate arrow, tip toward the channel
 _JFET_ARROW_BACK = -3.556
 _JFET_ARROW_HALF = 0.381
-_JFET_CIRCLE_X = -1.27      # body circle centre
-_JFET_CIRCLE_R = 2.8194
+#: Height of the drawn body, used to keep the label clear of it.  KiCad
+#: encircles its JFET symbols; circuitikz's transistors are drawn bare, so
+#: the circle is left out to match the rest of the output.
+_JFET_BODY_HALF = 2.54
 
 _GATE_STYLES: Dict[ComponentType, str] = {
     ComponentType.AND_GATE: "and port",
@@ -739,8 +741,6 @@ def _emit_jfet(comp: Component, tr: _Transform,
         return _xy(chx + mx * mm_x * SCALE, cy + mm_y * SCALE)
 
     lines = [
-        f"\\draw ({_fmt(chx + mx * _JFET_CIRCLE_X * SCALE)},{_fmt(cy)}) "
-        f"circle ({_fmt(_JFET_CIRCLE_R * SCALE)});",
         f"\\draw[line width=0.8pt] {at(_JFET_BAR_X, -_JFET_BAR_HALF)} -- "
         f"{at(_JFET_BAR_X, _JFET_BAR_HALF)};",
         # gate lead, straight along the centre line
@@ -761,7 +761,7 @@ def _emit_jfet(comp: Component, tr: _Transform,
             f"{at(0, sign * _JFET_CONN_Y)} -- {at(0, sign * _JFET_STUB_Y)} "
             f"-- {_xy(pin_x, pin_y)};")
     lines.append(f"\\draw {at(_JFET_GATE_END, 0)} -- {_xy(gx, gy)};")
-    lines.extend(_label_node(comp, chx, cy + _JFET_CIRCLE_R * SCALE + 0.1))
+    lines.extend(_label_node(comp, chx, cy + _JFET_BODY_HALF * SCALE + 0.1))
     return lines
 
 

@@ -760,12 +760,13 @@ def test_fun4_jfet_gate_enters_on_the_centre_line():
 
 
 def test_fun5_jfet_drawn_with_kicad_body():
-    """The JFET body is the KiCad picture: circle, thick channel bar, a
-    filled gate arrow and stepped drain/source leads."""
+    """The JFET body is KiCad's picture minus the enclosing circle (which
+    KiCad draws but circuitikz's transistors do not): a thick channel bar,
+    a filled gate arrow and stepped drain/source leads."""
     tex = circuitikz.generate(_mixed())
-    assert "circle (" in tex, "no JFET body circle"
     assert "line width=0.8pt" in tex, "no thick channel bar"
     assert "\\fill (" in tex, "no filled gate arrow"
+    assert "circle (" not in tex, "JFET should not be encircled"
     assert "njfet" not in tex and "pjfet" not in tex, (
         "circuitikz's off-centre JFET shape is still being used")
 
