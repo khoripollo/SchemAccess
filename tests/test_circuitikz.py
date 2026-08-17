@@ -314,16 +314,27 @@ def _ref_pattern(ref: str) -> re.Pattern:
 
 @pytest.mark.parametrize("name", VALID_FIXTURES)
 def test_com2_identifiers_and_values_preserved(name: str, load) -> None:
-    """Every ref labels the drawing exactly once; no value is dropped."""
+    """Every ref KiCad shows labels the drawing exactly once; no value is
+    dropped.  Fields whose "Show" box is unchecked in KiCad are expected to
+    be absent - that is field visibility, not data loss - and the alt text
+    still carries them (see test_com2_hidden_refs_still_in_alt_text)."""
     graph = load(name)
     tex = circuitikz.generate(graph)
     body = tex[tex.index(r"\begin{circuitikz}"):]
 
     counts = {ref: len(_ref_pattern(ref).findall(body))
               for ref in graph.components}
-    missing = sorted(ref for ref, n in counts.items() if n == 0)
+    shown = {ref for ref, comp in graph.components.items()
+             if comp.shows("Reference")}
+    missing = sorted(ref for ref, n in counts.items()
+                     if n == 0 and ref in shown)
+    hidden_but_drawn = sorted(ref for ref, n in counts.items()
+                              if n > 0 and ref not in shown)
     duplicated = sorted(ref for ref, n in counts.items() if n > 1)
     assert not missing, f"{name}: refs dropped from .tex: {missing}"
+    assert not hidden_but_drawn, (
+        f"{name}: refs drawn despite being hidden in KiCad: "
+        f"{hidden_but_drawn}")
     assert not duplicated, f"{name}: refs duplicated in .tex: {duplicated}"
 
     for ref in sorted(graph.components):
@@ -333,6 +344,19 @@ def test_com2_identifiers_and_values_preserved(name: str, load) -> None:
             assert expected in body, (
                 f"{name}: value annotation '{expected}' of {ref} "
                 f"(raw '{comp.value}') missing from .tex")
+
+
+@pytest.mark.parametrize("name", VALID_FIXTURES)
+def test_com2_hidden_refs_still_in_alt_text(name: str, load) -> None:
+    """Hiding a field is a drawing choice; the accessible description must
+    still name every component, hidden fields included."""
+    from schemaccess import alttext
+
+    graph = load(name)
+    text = alttext.generate(graph, "detailed")
+    for ref in graph.components:
+        assert _ref_pattern(ref).search(text), (
+            f"{name}: {ref} missing from the alt text")
 
 
 # ---------------------------------------------------------------------------
@@ -567,3 +591,59 @@ def test_junction_dot_option_flows_through_pipeline(tmp_path) -> None:
             generate_alt_text=False, generate_image=True,
             export_format="pdf", junction_dots=dots))
         assert ("node[circ]" in result.tikz_code) is dots
+
+
+# ---------------------------------------------------------------------------
+# Field visibility: KiCad's per-field "Show" checkbox is honoured in the
+# drawing (hidden_fields.kicad_sch hides R1's Reference and R2's Value).
+# ---------------------------------------------------------------------------
+
+def test_fun5_hidden_reference_and_value_not_drawn():
+    """A field whose Show box is unchecked in KiCad is not drawn."""
+    from conftest import load_graph
+
+    tex = circuitikz.generate(load_graph("hidden_fields.kicad_sch"))
+    bipoles = [ln for ln in tex.splitlines() if "to[" in ln]
+    assert len(bipoles) == 2, bipoles
+    r1 = next(ln for ln in bipoles if "10k" in ln)
+    r2 = next(ln for ln in bipoles if "R2" in ln)
+    # R1: Reference hidden -> value only, no l= label.
+    assert "l={R1}" not in r1 and "a={10k}" in r1, r1
+    # R2: Value hidden -> reference only, no a= annotation.
+    assert "l={R2}" in r2 and "22k" not in r2, r2
+
+
+def test_fun5_hidden_fields_parsed_in_both_kicad_syntaxes():
+    """KiCad 7+ writes '(hide yes)' on the property; KiCad 6 wrote it inside
+    '(effects ...)'.  Both must be recognised."""
+    from conftest import load_graph
+
+    graph = load_graph("hidden_fields.kicad_sch")
+    assert graph.components["R1"].hidden_properties == {"Reference"}
+    assert graph.components["R2"].hidden_properties == {"Value"}
+    assert graph.components["R1"].shows("Value")
+    assert not graph.components["R1"].shows("Reference")
+
+
+def test_fun5_multi_pin_label_omitted_when_both_fields_hidden():
+    """With Reference and Value both hidden there is no caption node at all
+    (rather than an empty one)."""
+    from schemaccess import circuitikz as ctz
+    from conftest import load_graph
+
+    graph = load_graph("opamp_partnumber.kicad_sch")
+    comp = graph.components["U1"]
+    comp.hidden_properties = {"Reference", "Value"}
+    tex = ctz.generate(graph)
+    assert "op amp" in tex
+    assert "anchor=south" not in tex, "empty caption node was still emitted"
+
+
+def test_rel3_hidden_fields_do_not_change_alt_text():
+    """Hiding a label affects the drawing only: the description still names
+    every component, because a screen-reader user needs the identifier."""
+    from schemaccess import alttext
+    from conftest import load_graph
+
+    text = alttext.generate(load_graph("hidden_fields.kicad_sch"), "standard")
+    assert "R1" in text and "R2" in text

@@ -27,6 +27,10 @@ gates — instead of its pixels.
 - **Reads real KiCad files**: KiCad 6/7/8/9 `.kicad_sch` schematics,
   including hierarchical sheets (flattened automatically), multi-unit
   symbols, power symbols, junctions, and local/global/hierarchical labels.
+- **Field visibility is respected**: if a symbol's Reference or Value field
+  has its *Show* checkbox unchecked in KiCad, that label is not drawn — the
+  image shows exactly the fields your schematic shows. The alt text still
+  names every component, since a screen-reader user needs the identifier.
 - **True electrical connectivity**: nets are built with KiCad semantics
   (junctions, labels, wire-interior connections; crossing wires without a
   junction are *not* connected).

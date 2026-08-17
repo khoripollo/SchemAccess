@@ -17,7 +17,7 @@ from __future__ import annotations
 import enum
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Sequence, Tuple
+from typing import Dict, List, Optional, Sequence, Set, Tuple
 
 # Coordinates are snapped to this many decimal places (0.0001 mm) when used
 # as dictionary keys, so float noise never splits a net.
@@ -85,8 +85,15 @@ class SymbolInstance:
     value: str = ""
     footprint: str = ""
     properties: Dict[str, str] = field(default_factory=dict)
+    #: Names of properties whose "Show" checkbox is off in KiCad; these
+    #: are not drawn on the schematic and must not be drawn by us either.
+    hidden_properties: Set[str] = field(default_factory=set)
     dnp: bool = False
     on_sheet: str = ""        # sheet path name, '' for root
+
+    def shows(self, key: str) -> bool:
+        """True when property *key* is visible on the KiCad schematic."""
+        return key in self.properties and key not in self.hidden_properties
 
     def pin_position(self, pin: PinDef) -> Point:
         """Absolute schematic position of *pin*'s connection point.
@@ -268,6 +275,15 @@ class Component:
     mirror: str = ""
     pins: Dict[str, PinConnection] = field(default_factory=dict)
     properties: Dict[str, str] = field(default_factory=dict)
+    #: Property names hidden on the KiCad schematic (see
+    #: :attr:`SymbolInstance.hidden_properties`).  The drawing honours
+    #: these; the alt text does not, because a screen-reader description
+    #: still needs to name the component it is describing.
+    hidden_properties: Set[str] = field(default_factory=set)
+
+    def shows(self, key: str) -> bool:
+        """True when property *key* is visible on the KiCad schematic."""
+        return key not in self.hidden_properties
 
     def net_ids(self) -> List[int]:
         seen: List[int] = []

@@ -1,0 +1,82 @@
+(kicad_sch (version 20231120) (generator "eeschema") (generator_version "8.0")
+  (uuid "hf000000-0001-4000-8000-000000000001")
+  (paper "A4")
+  (title_block
+    (title "Hidden field visibility")
+  )
+  (lib_symbols
+    (symbol "Device:R" (pin_numbers hide) (pin_names (offset 0)) (exclude_from_sim no) (in_bom yes) (on_board yes)
+      (property "Reference" "R" (at 2.032 0 90) (effects (font (size 1.27 1.27))))
+      (property "Value" "R" (at 0 0 90) (effects (font (size 1.27 1.27))))
+      (symbol "R_0_1"
+        (rectangle (start -1.016 -2.54) (end 1.016 2.54)
+          (stroke (width 0.254) (type default)) (fill (type none)))
+      )
+      (symbol "R_1_1"
+        (pin passive line (at 0 3.81 270) (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "1" (effects (font (size 1.27 1.27)))))
+        (pin passive line (at 0 -3.81 90) (length 1.27)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "2" (effects (font (size 1.27 1.27)))))
+      )
+    )
+    (symbol "power:GND" (power) (pin_names (offset 0)) (exclude_from_sim no) (in_bom yes) (on_board yes)
+      (property "Reference" "#PWR" (at 0 -6.35 0) (effects (font (size 1.27 1.27)) (hide yes)))
+      (property "Value" "GND" (at 0 -3.81 0) (effects (font (size 1.27 1.27))))
+      (symbol "GND_0_1"
+        (polyline (pts (xy 0 0) (xy 0 -1.27) (xy 1.27 -1.27) (xy 0 -2.54) (xy -1.27 -1.27) (xy 0 -1.27))
+          (stroke (width 0) (type default)) (fill (type none)))
+      )
+      (symbol "GND_1_1"
+        (pin power_in line (at 0 0 270) (length 0)
+          (name "~" (effects (font (size 1.27 1.27))))
+          (number "1" (effects (font (size 1.27 1.27)))))
+      )
+    )
+  )
+
+  (junction (at 57.15 103.81) (diameter 0) (color 0 0 0 0)
+    (uuid "hf000000-0002-4000-8000-000000000010"))
+
+  (wire (pts (xy 50.8 96.19) (xy 63.5 96.19))
+    (stroke (width 0) (type default)) (uuid "hf000000-0003-4000-8000-000000000020"))
+  (wire (pts (xy 50.8 103.81) (xy 57.15 103.81))
+    (stroke (width 0) (type default)) (uuid "hf000000-0003-4000-8000-000000000021"))
+  (wire (pts (xy 57.15 103.81) (xy 63.5 103.81))
+    (stroke (width 0) (type default)) (uuid "hf000000-0003-4000-8000-000000000022"))
+
+  (symbol (lib_id "Device:R") (at 50.8 100 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "hf000000-0004-4000-8000-000000000030")
+    (property "Reference" "R1" (at 53.34 98.73 0) (hide yes) (effects (font (size 1.27 1.27))))
+    (property "Value" "10k" (at 53.34 101.27 0) (effects (font (size 1.27 1.27))))
+    (pin "1" (uuid "hf000000-0005-4000-8000-000000000031"))
+    (pin "2" (uuid "hf000000-0005-4000-8000-000000000032"))
+    (instances (project "hidden_fields"
+      (path "/hf000000-0001-4000-8000-000000000001"
+        (reference "R1") (unit 1))))
+  )
+  (symbol (lib_id "Device:R") (at 63.5 100 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "hf000000-0004-4000-8000-000000000033")
+    (property "Reference" "R2" (at 66.04 98.73 0) (effects (font (size 1.27 1.27))))
+    (property "Value" "22k" (at 66.04 101.27 0) (effects (font (size 1.27 1.27)) (hide yes)))
+    (pin "1" (uuid "hf000000-0005-4000-8000-000000000034"))
+    (pin "2" (uuid "hf000000-0005-4000-8000-000000000035"))
+    (instances (project "hidden_fields"
+      (path "/hf000000-0001-4000-8000-000000000001"
+        (reference "R2") (unit 1))))
+  )
+  (symbol (lib_id "power:GND") (at 57.15 103.81 0) (unit 1)
+    (exclude_from_sim no) (in_bom yes) (on_board yes) (dnp no)
+    (uuid "hf000000-0004-4000-8000-000000000036")
+    (property "Reference" "#PWR01" (at 57.15 110.16 0) (hide yes) (effects (font (size 1.27 1.27))))
+    (property "Value" "GND" (at 57.15 107.62 0) (effects (font (size 1.27 1.27))))
+    (pin "1" (uuid "hf000000-0005-4000-8000-000000000037"))
+    (instances (project "hidden_fields"
+      (path "/hf000000-0001-4000-8000-000000000001"
+        (reference "#PWR01") (unit 1))))
+  )
+  (sheet_instances (path "/" (page "1")))
+)

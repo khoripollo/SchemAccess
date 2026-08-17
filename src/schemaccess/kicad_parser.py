@@ -220,6 +220,8 @@ def _parse_symbol_instance(node: list,
         if len(prop) >= 3:
             key, val = str(prop[1]), str(prop[2])
             inst.properties[key] = val
+            if _property_hidden(prop):
+                inst.hidden_properties.add(key)
             if key == "Reference":
                 inst.reference = val
             elif key == "Value":
@@ -227,6 +229,36 @@ def _parse_symbol_instance(node: list,
             elif key == "Footprint":
                 inst.footprint = val
     return inst
+
+
+def _flag(node: Optional[list]) -> Optional[bool]:
+    """Interpret a KiCad boolean flag list: ``(hide yes)`` / ``(hide no)``
+    / bare ``(hide)``.  Returns None when the flag is absent."""
+    if node is None:
+        return None
+    if len(node) > 1:
+        return str(node[1]).lower() not in ("no", "false")
+    return True
+
+
+def _property_hidden(prop: list) -> bool:
+    """True when a symbol property's "Show" checkbox is off in KiCad.
+
+    KiCad 7+ writes ``(hide yes)`` as a direct child of the property;
+    KiCad 6 wrote it inside ``(effects ...)``, either as ``(hide yes)``
+    or as a bare ``hide`` token.
+    """
+    direct = _flag(sexpr.child(prop, "hide"))
+    if direct is not None:
+        return direct
+    effects = sexpr.child(prop, "effects")
+    if effects is not None:
+        nested = _flag(sexpr.child(effects, "hide"))
+        if nested is not None:
+            return nested
+        if any(c == "hide" for c in effects[1:] if not isinstance(c, list)):
+            return True
+    return False
 
 
 def _uuid_of(node: list) -> str:

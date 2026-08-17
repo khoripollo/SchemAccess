@@ -187,7 +187,13 @@ def _is_placeholder_value(value: str, lib_id: str,
 
 
 def _format_value(comp: Component) -> str:
-    """Return the LaTeX annotation text for a component value ('' to omit)."""
+    """Return the LaTeX annotation text for a component value ('' to omit).
+
+    Returns '' when the Value field's "Show" checkbox is off in KiCad, so
+    the drawing shows exactly the fields the schematic shows.
+    """
+    if not comp.shows("Value"):
+        return ""
     raw = comp.value.strip()
     if _is_placeholder_value(raw, comp.lib_id, comp.ctype):
         return ""
@@ -389,7 +395,9 @@ def _emit_junctions(doc: SchematicDocument, tr: _Transform) -> List[str]:
 
 
 def _bipole_options(comp: Component, key: str) -> str:
-    opts = [key, f"l={{{_escape(comp.ref)}}}"]
+    opts = [key]
+    if comp.shows("Reference"):
+        opts.append(f"l={{{_escape(comp.ref)}}}")
     value = _format_value(comp)
     if value:
         opts.append(f"a={{{value}}}")
@@ -458,8 +466,7 @@ def _emit_gate(comp: Component, tr: _Transform, warnings: List[str],
         if pin.net_id < 0 or pin.net_id in dangling:
             continue  # floating optional pin: no lead
         lines.append(f"\\draw {tr.coord(pin.position)} -- ({name}.center);")
-    lines.append(f"\\node[font=\\small, anchor=south] at "
-                 f"{_xy(cx, cy + 0.45)} {{{_box_label(comp)}}};")
+    lines.extend(_label_node(comp, cx, cy + 0.45))
     return lines
 
 
@@ -563,9 +570,8 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
     label_y = max([node_y + 0.98 * scale]
                   + [tr.point(p.position)[1] for p in comp.pins.values()
                      if p.net_id >= 0 and p.net_id not in dangling])
-    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, node_y)} {{}};",
-             f"\\node[font=\\small, anchor=south] at "
-             f"{_xy(cx, label_y + 0.25)} {{{_box_label(comp)}}};"]
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, node_y)} {{}};"]
+    lines.extend(_label_node(comp, cx, label_y + 0.25))
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
         anchor = matched.get(number)
@@ -598,9 +604,8 @@ def _emit_transistor(comp: Component, tr: _Transform,
     style, anchors = _TRANSISTOR_STYLES[comp.ctype]
     name = _node_name(comp.ref)
     cx, cy = tr.point(comp.position)
-    lines = [f"\\node[{style}] ({name}) at {_xy(cx, cy)} {{}};",
-             f"\\node[font=\\small, anchor=south] at {_xy(cx, cy + 0.7)} "
-             f"{{{_box_label(comp)}}};"]
+    lines = [f"\\node[{style}] ({name}) at {_xy(cx, cy)} {{}};"]
+    lines.extend(_label_node(comp, cx, cy + 0.7))
     remaining = dict(zip(anchors, anchors))
     assigned: Dict[str, str] = {}
     for number in sorted(comp.pins, key=_pin_sort_key):
@@ -629,9 +634,8 @@ def _emit_generic_box(comp: Component, tr: _Transform) -> List[str]:
     if not pts:
         cx, cy = tr.point(comp.position)
         return [f"\\draw {_xy(cx - 0.5, cy - 0.5)} rectangle "
-                f"{_xy(cx + 0.5, cy + 0.5)};",
-                f"\\node[font=\\small, anchor=south] at "
-                f"{_xy(cx, cy + 0.5)} {{{_box_label(comp)}}};"]
+                f"{_xy(cx + 0.5, cy + 0.5)};"] + _label_node(
+                    comp, cx, cy + 0.5)
     bx0 = min(p[0] for p in pts.values())
     bx1 = max(p[0] for p in pts.values())
     by0 = min(p[1] for p in pts.values())
@@ -669,9 +673,8 @@ def _emit_generic_box(comp: Component, tr: _Transform) -> List[str]:
         else:
             cy = (y0 + y1) / 2.0
             y0, y1 = cy - _MIN_BODY / 2.0, cy + _MIN_BODY / 2.0
-    lines = [f"\\draw {_xy(x0, y0)} rectangle {_xy(x1, y1)};",
-             f"\\node[font=\\small, anchor=south] at "
-             f"{_xy((x0 + x1) / 2.0, y1)} {{{_box_label(comp)}}};"]
+    lines = [f"\\draw {_xy(x0, y0)} rectangle {_xy(x1, y1)};"]
+    lines.extend(_label_node(comp, (x0 + x1) / 2.0, y1))
 
     def clamp(v: float, lo: float, hi: float) -> float:
         return max(lo, min(hi, v))
@@ -698,11 +701,23 @@ def _emit_generic_box(comp: Component, tr: _Transform) -> List[str]:
 
 
 def _box_label(comp: Component) -> str:
-    label = _escape(comp.ref)
+    """Label text for a multi-pin symbol ('' when KiCad hides both fields)."""
+    parts = []
+    if comp.shows("Reference"):
+        parts.append(_escape(comp.ref))
     value = _format_value(comp)
     if value:
-        label += f" {value}"
-    return label
+        parts.append(value)
+    return " ".join(parts)
+
+
+def _label_node(comp: Component, x: float, y: float) -> List[str]:
+    """Caption node for a multi-pin symbol, or nothing at all when KiCad
+    hides both its Reference and Value fields."""
+    text = _box_label(comp)
+    if not text:
+        return []
+    return [f"\\node[font=\\small, anchor=south] at {_xy(x, y)} {{{text}}};"]
 
 
 def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
@@ -742,6 +757,9 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
         if inst.reference.startswith("#FLG"):
             continue  # ERC power flags have no graphic meaning
         name = inst.value or inst.lib_id.split(":", 1)[-1]
+        # KiCad can hide a power symbol's Value field; then the rail is
+        # drawn without its name, exactly as the schematic shows it.
+        shown = "" if "Value" in inst.hidden_properties else _escape(name)
         for pin in lib.pins_for_unit(inst.unit):
             pos = inst.pin_position(pin)
             net = net_at.get(pos)
@@ -750,11 +768,9 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
             if is_ground:
                 lines.append(f"\\draw {tr.coord(pos)} node[ground]{{}};")
             elif _is_positive_rail(name):
-                lines.append(f"\\draw {tr.coord(pos)} "
-                             f"node[vcc]{{{_escape(name)}}};")
+                lines.append(f"\\draw {tr.coord(pos)} node[vcc]{{{shown}}};")
             else:
-                lines.append(f"\\draw {tr.coord(pos)} "
-                             f"node[vee]{{{_escape(name)}}};")
+                lines.append(f"\\draw {tr.coord(pos)} node[vee]{{{shown}}};")
     return lines
 
 

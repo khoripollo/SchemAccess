@@ -1,4 +1,11 @@
 {
+  "hidden_fields.kicad_sch": {
+    "components": 2,
+    "nets": 2,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "R1 with its Reference hidden (KiCad 7+ '(hide yes)') and R2 with its Value hidden (KiCad 6 '(effects ... (hide yes))'); regression for field-visibility handling."
+  },
   "opamp_partnumber.kicad_sch": {
     "components": 7,
     "nets": 5,
