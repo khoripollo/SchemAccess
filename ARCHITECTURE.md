@@ -98,7 +98,14 @@ kicad_parser -> netbuilder -> analyzer -> alttext / circuitikz -> renderer -> pi
 6. **`circuitikz.py`** — `generate(graph)` emits a complete standalone LaTeX
    document (`generate_body` emits just the `circuitikz` environment).
    KiCad millimetre coordinates (Y down) are mapped linearly onto TikZ units
-   (Y up) so the drawing preserves the original layout; two-terminal
+   (Y up) so the drawing preserves the original layout. The factor is
+   `SCALE = 0.49 / 2.54`, chosen so KiCad's grid lands on circuitikz's own
+   natural proportions: a pin 2.54 mm off centre maps to 0.49 units, exactly
+   where circuitikz places an op amp's input anchor. Every symbol therefore
+   draws at its natural circuitikz size — the way a hand-written figure
+   looks — and op-amp leads meet their pins without scaling the shape.
+   Changing `SCALE` resizes every drawing and reintroduces that mismatch, so
+   a test pins it to the anchor geometry. Two-terminal
    components become circuitikz bipoles with verified polarity, transistors,
    gates and op-amps become circuitikz nodes, and everything else becomes a
    labelled rectangle whose pin stubs land on the true pin positions.

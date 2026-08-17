@@ -452,10 +452,31 @@ def test_fun4_opamp_uses_circuitikz_shape_undistorted():
         assert "anchor=" not in line, f"{fixture}: {line}"
         match = _SCALE_RE.search(line)
         if match is None:
-            continue  # natural size, nothing to check
+            continue  # emitted at natural size - nothing to check
         xs, ys = abs(float(match.group(1))), float(match.group(2))
         assert abs(xs - ys) < 1e-6, f"{fixture}: non-uniform scale {line}"
         assert 0.5 <= ys <= 2.5, f"{fixture}: extreme scale {line}"
+
+
+def test_fun4_standard_kicad_opamp_needs_no_scaling():
+    """SCALE maps KiCad's grid onto circuitikz's own proportions, so a
+    standard symbol (inputs 2.54 mm off centre) draws at exactly natural
+    size: no scale transform is emitted at all."""
+    from conftest import load_graph
+
+    for fixture in ("sim_spice_opamp.kicad_sch", "opamp_inverting.kicad_sch",
+                    "opamp_partnumber.kicad_sch"):
+        tex = circuitikz.generate(load_graph(fixture))
+        line = next(ln for ln in tex.splitlines() if "op amp" in ln)
+        assert "scale" not in line, f"{fixture} should be natural size: {line}"
+
+
+def test_scale_matches_circuitikz_natural_geometry():
+    """The mm->TikZ factor is pinned to circuitikz's op-amp input anchor
+    offset; changing it would silently resize every drawing."""
+    from schemaccess.circuitikz import _OPAMP_INPUT_HALF
+
+    assert circuitikz.SCALE * 2.54 == pytest.approx(_OPAMP_INPUT_HALF)
 
 
 def test_fun6_opamp_input_leads_are_straight():

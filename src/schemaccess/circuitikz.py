@@ -28,8 +28,15 @@ from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
 
 __all__ = ["generate", "generate_body", "SCALE"]
 
-# One standard 7.62 mm two-pin KiCad element becomes 2.0 TikZ units.
-SCALE = 0.2625
+# Millimetres -> TikZ units.  Chosen so KiCad's grid lands on circuitikz's
+# own natural symbol proportions: a symbol pin 2.54 mm off centre maps to
+# 0.49 units, exactly where circuitikz puts an op amp's input anchor.  Every
+# symbol - bipoles and the op amp alike - therefore draws at its natural
+# circuitikz size, the way a hand-written figure looks, and op-amp leads
+# land on their pins without any scaling of the shape.  (A standard 7.62 mm
+# two-pin element becomes 1.47 units, just over circuitikz's 1.4 default
+# bipole length, so components keep a little lead and never collide.)
+SCALE = 0.49 / 2.54
 
 # Stub length (TikZ units) between a pin and the generic rectangle body.
 _STUB = 0.3
@@ -81,6 +88,13 @@ _OPAMP_ANCHOR_X = 1.190
 # leads be drawn as straight vertical lines down to the body - the way
 # KiCad draws them - instead of slashing across the symbol.
 _OPAMP_UP_ANCHOR = (-0.083, 0.539)
+
+#: Size of the drawn op amp.  ``None`` means "scale uniformly so the input
+#: anchors coincide with the KiCad input pins", which keeps the leads
+#: perfectly straight; with :data:`SCALE` above this works out at ~1.0 (the
+#: natural circuitikz size) for standard symbols.  Set a float to force a
+#: fixed size instead.
+OPAMP_SCALE: Optional[float] = None
 
 
 def _opamp_edge_y(local_x: float) -> float:
@@ -507,13 +521,16 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
                 + tr.point(comp.pins[minus_no].position)[0]) / 2.0
         mirrored = out_x < in_x
 
-    scale = 1.0
+    scale = OPAMP_SCALE
     node_y = cy
     if plus_y is not None and minus_y is not None:
-        wanted = abs(plus_y - minus_y) / 2.0
-        if wanted > 0.05:
-            scale = min(max(wanted / _OPAMP_INPUT_HALF, 0.5), 2.5)
+        if scale is None:  # match the KiCad input-pin spacing exactly
+            wanted = abs(plus_y - minus_y) / 2.0
+            scale = (min(max(wanted / _OPAMP_INPUT_HALF, 0.5), 2.5)
+                     if wanted > 0.05 else 1.0)
         node_y = (plus_y + minus_y) / 2.0
+    if scale is None:
+        scale = 1.0
     if abs(scale - 1.0) > 1e-3 or mirrored:
         node_style += (f", xscale={_fmt(-scale if mirrored else scale)}"
                        f", yscale={_fmt(scale)}")
@@ -566,11 +583,11 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             lines.append(supply_lead(pin, anchor))
         else:
             # Inputs and output: a straight horizontal lead when the anchor
-            # already sits at the pin's height (the normal case after the
-            # uniform scaling above), otherwise square up to it so the
-            # connection is never a diagonal.
+            # already sits at the pin's height, otherwise step vertically
+            # right at the symbol and then run across, so the bend reads as
+            # part of the pin lead rather than a kink out in the wiring.
             py = tr.point(pin.position)[1]
-            joiner = "--" if abs(anchor_y(anchor) - py) < 5e-3 else "-|"
+            joiner = "--" if abs(anchor_y(anchor) - py) < 5e-3 else "|-"
             lines.append(
                 f"\\draw ({name}.{anchor}) {joiner} {tr.coord(pin.position)};")
     return lines
