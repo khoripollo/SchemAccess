@@ -726,48 +726,33 @@ def test_fun6_transistor_leads_are_straight():
     centred on the channel pins' x and placed vertically from the control
     pin, so channel leads run down and the control lead runs across."""
     tex = circuitikz.generate(_mixed())
-    # A JFET's gate lead is coordinate-only (see the centring test below),
-    # so only two of its three leads start from an anchor.
-    expected = {"Q1": 3, "Q2": 3, "Q3": 2}
-    for ref, count in expected.items():
+    for ref in ("Q1", "Q2", "Q3"):
         leads = [ln for ln in tex.splitlines()
                  if ln.startswith(f"\\draw (n{ref}.")]
-        assert len(leads) == count, f"{ref}: expected {count}, got {leads}"
+        assert len(leads) == 3, f"{ref}: expected 3 leads, got {leads}"
         for line in leads:
             assert " -- " in line, f"{ref}: lead needs a jog: {line}"
 
 
-def test_fun4_jfet_gate_is_centred_like_kicad():
-    """circuitikz draws a JFET's gate a third of the way down the channel;
-    KiCad centres it.  The document must carry the ctikzset that centres
-    it, and the gate lead must run horizontally along the node's centre
-    line - not to the shape's (now stale) '.G' anchor."""
-    from schemaccess.circuitikz import _JFET_GATE_X
+def test_fun4_jfet_gate_offset_compensated():
+    """circuitikz puts a JFET's gate anchor off the centre line while KiCad
+    puts the gate pin on it; the node is shifted so the gate lead still
+    comes out horizontal."""
+    from schemaccess.circuitikz import _TRANSISTOR_STYLES
+    from schemaccess.model import ComponentType
 
-    tex = circuitikz.generate(_mixed())
-    assert "tripoles/njfet/gate height 2=0" in tex
-    assert "tripoles/njfet/union height=0" in tex
+    _s, _c, _f, _sec, ctrl_dy, _fd = \
+        _TRANSISTOR_STYLES[ComponentType.NJFET]
+    assert ctrl_dy != 0.0, "JFET gate offset should be non-zero"
 
-    node = next(ln for ln in tex.splitlines() if "njfet" in ln
-                and ln.startswith("\\node"))
-    cx, cy = (float(v) for v in _COORD_RE.findall(node)[-1])
-
-    # The gate lead is coordinate-only (it does not use the .G anchor): it
-    # starts one gate-offset left of the node, on its centre line.
-    start = f"({_fmt_num(cx - _JFET_GATE_X)},{_fmt_num(cy)})"
-    gate = [ln for ln in tex.splitlines()
-            if ln.startswith(f"\\draw {start} --")]
-    assert len(gate) == 1, f"no centred gate lead starting at {start}"
-    pts = _COORD_RE.findall(gate[0])
-    assert abs(float(pts[1][1]) - cy) < 1e-6, f"gate not level: {gate[0]}"
-    assert ".G)" not in tex, "stale .G anchor still used for a JFET"
-
-
-def _fmt_num(value: float) -> str:
-    """Format a coordinate the way the generator does (for matching)."""
-    from schemaccess.circuitikz import _fmt
-
-    return _fmt(value)
+    graph = _mixed()
+    tex = circuitikz.generate(graph)
+    node = next(ln for ln in tex.splitlines() if "njfet" in ln)
+    node_y = float(_COORD_RE.findall(node)[-1][1])
+    gate = next(ln for ln in tex.splitlines() if ln.startswith("\\draw (nQ3.G)"))
+    gate_y = float(_COORD_RE.findall(gate)[-1][1])
+    assert abs((node_y + ctrl_dy) - gate_y) < 0.01, (
+        f"gate anchor {node_y + ctrl_dy} does not meet pin {gate_y}")
 
 
 def test_fun4_p_type_transistor_flipped_to_match_kicad():
