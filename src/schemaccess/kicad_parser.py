@@ -171,9 +171,12 @@ def _parse_pin_def(node: list, unit: int) -> Optional[PinDef]:
     num_node = sexpr.child(node, "number")
     if num_node and len(num_node) > 1:
         number = str(num_node[1])
+    hide_node = sexpr.child(node, "hide")
+    hidden = hide_node is not None and not (
+        len(hide_node) > 1 and str(hide_node[1]) == "no")
     return PinDef(number=number, name=name, x=x, y=y,
                   orientation=orientation, length=length,
-                  etype=etype, unit=unit)
+                  etype=etype, unit=unit, hidden=hidden)
 
 
 # ---------------------------------------------------------------------------

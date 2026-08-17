@@ -1,4 +1,11 @@
 {
+  "opamp_partnumber.kicad_sch": {
+    "components": 7,
+    "nets": 5,
+    "ground": true,
+    "power_symbols": 1,
+    "description": "Amplifier_Operational:OP1177AR (unlisted part number, 3 hidden no-connect pins) with R/L/C network; regression for library-category and pin-signature classification."
+  },
   "sim_spice_opamp.kicad_sch": {
     "components": 4,
     "nets": 6,

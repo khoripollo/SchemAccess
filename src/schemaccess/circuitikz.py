@@ -76,6 +76,18 @@ _DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
 # just like the original schematic.
 _OPAMP_INPUT_HALF = 0.490
 _OPAMP_ANCHOR_X = 1.190
+# The '.up' supply anchor sits on the triangle's upper edge; together with
+# the apex (the '.out' anchor) it defines that edge, which lets supply
+# leads be drawn as straight vertical lines down to the body - the way
+# KiCad draws them - instead of slashing across the symbol.
+_OPAMP_UP_ANCHOR = (-0.083, 0.539)
+
+
+def _opamp_edge_y(local_x: float) -> float:
+    """Height of the op amp's upper edge at *local_x* (node coordinates)."""
+    ax, ay = _OPAMP_UP_ANCHOR
+    slope = (0.0 - ay) / (_OPAMP_ANCHOR_X - ax)
+    return max(ay + slope * (local_x - ax), 0.0)
 
 _TRANSISTOR_STYLES: Dict[ComponentType, Tuple[str, Tuple[str, str, str]]] = {
     ComponentType.TRANSISTOR_NPN: ("npn", ("B", "C", "E")),
@@ -483,6 +495,7 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             pin_y = tr.point(comp.pins[number].position)[1]
             matched[number] = "up" if pin_y >= cy else "down"
 
+    placement: Optional[Tuple[float, float, float, float]] = None
     if out_no is not None and plus_y is not None \
             and abs(plus_y - minus_y) > 0.1:
         # Pin the node's output anchor to the true output pin and stretch
@@ -501,12 +514,35 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
         node_style += (f", anchor=out, xscale={_fmt(xscale)}"
                        f", yscale={_fmt(yscale)}")
         node_at = _xy(ox, oy)
+        placement = (ox, oy, xscale, yscale)
     else:
         node_at = _xy(cx, cy)
 
+    def supply_lead(pin: PinConnection, anchor: str) -> str:
+        """A straight vertical lead from a supply pin down to the body edge,
+        matching how KiCad draws V+/V- pin leads."""
+        px, py = tr.point(pin.position)
+        if placement is None:
+            return f"\\draw ({name}.{anchor}) -- {_xy(px, py)};"
+        ox, oy, xscale, yscale = placement
+        local_x = (px - ox) / xscale + _OPAMP_ANCHOR_X
+        edge = _opamp_edge_y(local_x) * yscale
+        edge_y = oy + edge if anchor == "up" else oy - edge
+        if (anchor == "up" and edge_y >= py) or \
+                (anchor == "down" and edge_y <= py):
+            # Pin sits inside the body outline; fall back to the anchor.
+            return f"\\draw ({name}.{anchor}) -- {_xy(px, py)};"
+        return f"\\draw {_xy(px, py)} -- {_xy(px, edge_y)};"
+
+    # Put the label clear of the body *and* of the supply leads above it,
+    # so it never overprints the symbol or its wiring.
+    label_y = max(tr.point(p.position)[1] for p in comp.pins.values()) \
+        if comp.pins else cy
+    if placement is not None:
+        label_y = max(label_y, placement[1] + 0.98 * placement[3])
     lines = [f"\\node[{node_style}] ({name}) at {node_at} {{}};",
-             f"\\node[font=\\small, anchor=south] at ({name}.north) "
-             f"{{{_box_label(comp)}}};"]
+             f"\\node[font=\\small, anchor=south] at "
+             f"{_xy(cx, label_y + 0.25)} {{{_box_label(comp)}}};"]
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
         anchor = matched.get(number)
@@ -521,10 +557,7 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
         elif anchor in ("up", "down"):
             if unconnected:
                 continue  # supply pin left floating in the schematic
-            # Right-angle route (vertical, then horizontal) so supply
-            # leads never slash across the triangle.
-            lines.append(
-                f"\\draw ({name}.{anchor}) |- {tr.coord(pin.position)};")
+            lines.append(supply_lead(pin, anchor))
         else:
             lines.append(
                 f"\\draw ({name}.{anchor}) -- {tr.coord(pin.position)};")

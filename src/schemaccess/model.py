@@ -17,7 +17,7 @@ from __future__ import annotations
 import enum
 import math
 from dataclasses import dataclass, field
-from typing import Dict, List, Optional, Tuple
+from typing import Dict, List, Optional, Sequence, Tuple
 
 # Coordinates are snapped to this many decimal places (0.0001 mm) when used
 # as dictionary keys, so float noise never splits a net.
@@ -46,6 +46,7 @@ class PinDef:
     length: float
     etype: str = "passive"   # electrical type: input/output/passive/power_in...
     unit: int = 1            # symbol unit the pin belongs to (0 = all units)
+    hidden: bool = False     # KiCad '(hide yes)' on the pin
 
 
 @dataclass
@@ -58,7 +59,16 @@ class LibSymbol:
     description: str = ""
 
     def pins_for_unit(self, unit: int) -> List[PinDef]:
-        return [p for p in self.pins if p.unit in (0, unit)]
+        """Connectable pins of *unit*.
+
+        Hidden ``no_connect`` pins (e.g. the unused pins 1/5/8 of an
+        SOIC-8 op amp) are omitted: KiCad does not draw them and they
+        carry no connectivity.  Hidden *power* pins are kept, because
+        KiCad connects those implicitly by name.
+        """
+        return [p for p in self.pins
+                if p.unit in (0, unit)
+                and not (p.hidden and p.etype == "no_connect")]
 
 
 @dataclass
@@ -409,14 +419,38 @@ _PREFIX_MAP = {
 }
 
 
+# KiCad library (the part before the colon), lower-cased, matched by
+# prefix.  Catches every part in a family regardless of part number, e.g.
+# Amplifier_Operational:OP1177AR / :LM358 / :AD8629.
+_LIB_CATEGORY_MAP = [
+    ("amplifier_operational", ComponentType.OPAMP),
+    ("amplifier_instrumentation", ComponentType.OPAMP),
+    ("simulation_spice", None),   # handled by symbol name (VDC, OPAMP...)
+]
+
+# Pin-name signatures, used when neither the library nor the part name is
+# recognised.  Works for custom and third-party symbols.
+_OPAMP_PLUS_NAMES = {"+", "in+", "inp", "vin+", "ninv", "non-inverting"}
+_OPAMP_MINUS_NAMES = {"-", "in-", "inn", "vin-", "inv", "inverting"}
+
+
+def _looks_like_opamp(pin_names: Sequence[str]) -> bool:
+    """True when the pin names show a differential-input amplifier."""
+    names = {str(n).strip().lower() for n in pin_names}
+    return bool(names & _OPAMP_PLUS_NAMES) and bool(names & _OPAMP_MINUS_NAMES)
+
+
 def classify(lib_id: str, reference: str = "", value: str = "",
-             pin_count: int = 0) -> ComponentType:
+             pin_count: int = 0,
+             pin_names: Sequence[str] = ()) -> ComponentType:
     """Best-effort classification of a symbol into a :class:`ComponentType`.
 
-    Priority: library name match, then value match (for generic sim symbols),
-    then reference-prefix fallback.
+    Priority: library symbol name, then KiCad library category, then the
+    pin-name signature (so unknown part numbers still resolve), then the
+    reference-designator prefix.
     """
     name = lib_id.split(":", 1)[-1].lower() if lib_id else ""
+    library = lib_id.split(":", 1)[0].lower() if ":" in lib_id else ""
     for prefix, ctype in _LIB_NAME_MAP:
         if name == prefix:
             return ctype
@@ -424,6 +458,13 @@ def classify(lib_id: str, reference: str = "", value: str = "",
         # nand...) also match as leading substrings: R_Small, LED_RGB, NAND2.
         if (prefix.endswith("_") or len(prefix) > 2) and name.startswith(prefix):
             return ctype
+
+    for lib_prefix, ctype in _LIB_CATEGORY_MAP:
+        if ctype is not None and library.startswith(lib_prefix):
+            return ctype
+
+    if _looks_like_opamp(pin_names):
+        return ComponentType.OPAMP
 
     ref_prefix = "".join(ch for ch in reference if not ch.isdigit()).upper()
     if ref_prefix in _PREFIX_MAP:

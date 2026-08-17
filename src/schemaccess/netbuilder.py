@@ -245,11 +245,12 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
             continue
         comp = graph.components.get(inst.reference)
         if comp is None:
-            pin_count = len(lib.pins)
+            unit_pins = lib.pins_for_unit(inst.unit)
             comp = Component(
                 ref=inst.reference,
                 ctype=classify(inst.lib_id, inst.reference, inst.value,
-                               pin_count),
+                               len(unit_pins),
+                               [p.name for p in unit_pins]),
                 value=inst.value,
                 lib_id=inst.lib_id,
                 position=snap(inst.x, inst.y),

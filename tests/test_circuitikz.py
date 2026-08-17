@@ -380,6 +380,62 @@ def test_fun5_no_leads_to_floating_supply_pins():
     assert ".down)" not in tex
 
 
+# ---------------------------------------------------------------------------
+# FUN-4 regression: op amps identified by library category / pin signature,
+# not by a hard-coded part-number list (opamp_partnumber.kicad_sch uses
+# Amplifier_Operational:OP1177AR and has three hidden no-connect pins).
+# ---------------------------------------------------------------------------
+
+def test_fun4_unlisted_opamp_part_number_classified():
+    """An op amp whose part number is not in any lookup table must still be
+    recognised - via its KiCad library category and its +/- pin names."""
+    from conftest import load_graph
+    from schemaccess.model import ComponentType
+
+    graph = load_graph("opamp_partnumber.kicad_sch")
+    assert graph.components["U1"].ctype is ComponentType.OPAMP
+
+
+def test_fun4_hidden_no_connect_pins_dropped():
+    """Hidden no-connect pins (SOIC-8 op amp pins 1/5/8) carry no
+    connectivity and must not appear as pins or spurious nets."""
+    from conftest import load_graph
+
+    graph = load_graph("opamp_partnumber.kicad_sch")
+    assert sorted(graph.components["U1"].pins) == ["2", "3", "4", "6", "7"]
+
+
+def test_fun5_unlisted_opamp_drawn_as_op_amp_not_box():
+    """It must render as a circuitikz op amp, never the rectangle fallback."""
+    from conftest import load_graph
+
+    tex = circuitikz.generate(load_graph("opamp_partnumber.kicad_sch"))
+    assert "op amp" in tex
+    assert "rectangle" not in tex
+
+
+def test_fun6_opamp_supply_leads_are_vertical():
+    """Connected V+/V- leads run straight down/up to the body edge (like
+    KiCad's pin leads) instead of crossing the triangle."""
+    from conftest import load_graph
+
+    tex = circuitikz.generate(load_graph("opamp_partnumber.kicad_sch"))
+    # Only the multi-pin section: everything else is ordinary wiring.
+    all_lines = tex.splitlines()
+    start = all_lines.index("% Multi-pin components") + 1
+    section: List[str] = []
+    for line in all_lines[start:]:
+        if line.startswith("% "):
+            break
+        section.append(line)
+    leads = [ln for ln in section if "nU1" not in ln and ln.startswith("\\draw")]
+    assert len(leads) == 2, f"expected 2 supply leads, got {leads}"
+    for line in leads:
+        pts = _COORD_RE.findall(line)
+        assert len(pts) == 2 and pts[0][0] == pts[1][0], (
+            f"supply lead is not vertical: {line}")
+
+
 def test_fun6_opamp_anchors_land_on_kicad_pins():
     """The op amp node is pinned to its output pin (anchor=out) and
     stretched with xscale/yscale so the input anchors land exactly on the
