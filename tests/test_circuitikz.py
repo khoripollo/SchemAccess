@@ -685,9 +685,42 @@ def test_fun5_real_symbols_not_generic_boxes():
     tex = circuitikz.generate(graph)
     for key in ("npn", "pnp", "transformer core", "cvsource"):
         assert key in tex, f"{key} missing from generated .tex"
-    assert "rectangle" not in tex, "a symbol fell back to a generic box"
+    # Exactly the components with no dedicated symbol may fall back to a
+    # labelled rectangle - and none of the five above is among them.
+    fallback = _expected_fallbacks(graph)
+    assert not ({"Q1", "Q2", "Q3", "Q4", "T1", "B1"} & fallback), (
+        f"a supported symbol fell back to a box: {sorted(fallback)}")
+    assert tex.count("rectangle") == len(fallback), (
+        f"expected {len(fallback)} fallback boxes for {sorted(fallback)}")
     assert not [w for w in graph.warnings if "no " in w and "anchor" in w], (
         f"unanchored pins: {graph.warnings}")
+
+
+def _expected_fallbacks(graph) -> set:
+    """Refs the generator legitimately draws as a labelled rectangle."""
+    from schemaccess.model import ComponentType
+
+    boxed = {ComponentType.UNKNOWN, ComponentType.IC,
+             ComponentType.CONNECTOR, ComponentType.POWER_FLAG}
+    out = set()
+    for ref, comp in graph.components.items():
+        if comp.ctype in boxed or len(comp.pins) < 2:
+            out.add(ref)
+        elif comp.ctype is ComponentType.TRANSFORMER and len(comp.pins) != 4:
+            out.add(ref)   # multi-winding: no four-tap circuitikz shape
+        elif (comp.ctype in _BIPOLE_ONLY and len(comp.pins) != 2
+                and comp.ctype is not ComponentType.POTENTIOMETER):
+            out.add(ref)
+    return out
+
+
+def _bipole_only():
+    from schemaccess.circuitikz import _BIPOLE_KEYS
+
+    return set(_BIPOLE_KEYS)
+
+
+_BIPOLE_ONLY = _bipole_only()
 
 
 def test_fun6_transistor_and_transformer_leads_orthogonal():
@@ -766,7 +799,10 @@ def test_fun5_jfet_drawn_with_kicad_body():
     tex = circuitikz.generate(_mixed())
     assert "line width=0.8pt" in tex, "no thick channel bar"
     assert "\\fill (" in tex, "no filled gate arrow"
-    assert "circle (" not in tex, "JFET should not be encircled"
+    # No stroked circle anywhere: KiCad encircles its FETs, we do not.
+    # (Filled circles are polarity dots, drawn with \fill, and are fine.)
+    assert not re.search(r"\\draw[^\n]*\bcircle \(", tex), (
+        "JFET should not be encircled")
     assert "njfet" not in tex and "pjfet" not in tex, (
         "circuitikz's off-centre JFET shape is still being used")
 
@@ -793,3 +829,53 @@ def test_fun4_p_type_transistor_flipped_to_match_kicad():
     assert "yscale=-1" in pnp, pnp
     npn = next(ln for ln in tex.splitlines() if "[npn" in ln)
     assert "yscale" not in npn, npn
+
+
+# ---------------------------------------------------------------------------
+# Polarity / winding-phase dots: KiCad draws these as filled circles in the
+# symbol graphics (mixed_symbols.kicad_sch has a custom L_Polarized).
+# ---------------------------------------------------------------------------
+
+def test_fun5_polarity_dot_is_drawn():
+    """A filled circle in the symbol art is a polarity dot and must appear
+    in the drawing, positioned where KiCad puts it."""
+    graph = _mixed()
+    dotted = {ref for ref, comp in graph.components.items() if comp.dots}
+    assert dotted, "no polarity dot was captured from the symbol graphics"
+
+    tex = circuitikz.generate(graph)
+    assert "% Polarity dots" in tex
+    for ref in sorted(dotted):
+        for position, _radius in graph.components[ref].dots:
+            point = _tex_point(tex, position, graph)
+            assert f"\\fill {_xy_str(point)} circle (" in tex, (
+                f"{ref}: dot at {position} missing from the .tex")
+
+
+def test_fun5_only_filled_circles_become_dots():
+    """Outline-only circles are body art (a source's envelope, a JFET's
+    circle) and must NOT be mistaken for polarity dots."""
+    from schemaccess import kicad_parser
+    from conftest import FIXTURES_DIR
+
+    doc = kicad_parser.parse_file(
+        str(FIXTURES_DIR / "mixed_symbols.kicad_sch"))
+    # The behavioural source and the op amps have unfilled body circles.
+    for lib_id, lib in doc.lib_symbols.items():
+        for dot in lib.dots:
+            assert dot.radius <= 1.0, (
+                f"{lib_id}: body outline picked up as a dot (r={dot.radius})")
+
+
+def test_fun4_dot_follows_symbol_rotation():
+    """A dot is a point in library space, so it must be transformed by the
+    instance's rotation and mirroring exactly like a pin is."""
+    from schemaccess.model import SymbolInstance
+
+    inst = SymbolInstance(uuid="u", lib_id="lib:L", x=100.0, y=100.0,
+                          angle=90.0)
+    # 90 degrees CCW in library space, then Y flipped for schematic space.
+    assert inst.lib_point(0.0, 2.54) == (97.46, 100.0)
+    inst.angle = 0.0
+    inst.mirror = "y"
+    assert inst.lib_point(1.27, 0.0) == (98.73, 100.0)

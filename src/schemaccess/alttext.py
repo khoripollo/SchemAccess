@@ -168,6 +168,9 @@ def _component_phrase(comp: Component) -> str:
     return f"{_article(core)} {core} labelled {comp.ref}"
 
 
+#: Types whose dot marks winding phase rather than terminal polarity.
+_WINDING_TYPES = (ComponentType.INDUCTOR, ComponentType.TRANSFORMER)
+
 #: Terminal names for three-terminal devices, by pin name.
 _BJT_TERMINALS = {"C": "its collector", "B": "its base", "E": "its emitter"}
 _FET_TERMINALS = {"D": "its drain", "G": "its gate", "S": "its source"}
@@ -378,6 +381,17 @@ def _detailed_lines(graph: CircuitGraph,
                 parts.append(f"{tag} to {nname(pin.net_id)}")
             listing = "; ".join(parts) if parts else "no pins"
             lines.append(f"{comp.ref} ({comp.ctype.value}): {listing}.")
+
+    # A polarity dot is information a sighted reader gets for free from the
+    # drawing, so it has to be stated for a screen-reader user.
+    dotted = [c for c in graph.sorted_components() if c.dots]
+    if dotted:
+        for comp in dotted:
+            marker = ("winding-phase dot" if comp.ctype in _WINDING_TYPES
+                      else "polarity dot")
+            lines.append(
+                f"The {comp.ctype.value} labelled {comp.ref} is marked with "
+                f"a {marker}.")
 
     messages = list(analysis.notes) + list(graph.warnings)
     if messages:

@@ -267,6 +267,12 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
             comp.pins[pin.number] = PinConnection(
                 number=pin.number, name=pin.name, position=pos,
                 net_id=net_id, etype=pin.etype)
+        # Polarity dots travel with the placed symbol, so they follow its
+        # rotation and mirroring like the pins do.
+        for dot in lib.dots_for_unit(inst.unit):
+            marker = (inst.lib_point(dot.x, dot.y), dot.radius)
+            if marker not in comp.dots:
+                comp.dots.append(marker)
 
     # Register pins on their nets, in deterministic order.
     for comp in graph.sorted_components():

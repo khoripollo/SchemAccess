@@ -948,6 +948,21 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
     return lines
 
 
+def _emit_polarity_dots(graph: CircuitGraph, tr: _Transform) -> List[str]:
+    """Filled dots the KiCad symbols carry (winding phase, polarity).
+
+    They are emitted from the shared graph rather than by each symbol
+    emitter, so a dot survives whichever way the component is drawn -
+    circuitikz bipole, node or fallback box.
+    """
+    lines: List[str] = []
+    for ref in sorted(graph.components, key=_ref_sort_key):
+        for position, radius in graph.components[ref].dots:
+            lines.append(f"\\fill {tr.coord(position)} "
+                         f"circle ({_fmt(max(radius * SCALE, 0.03))});")
+    return lines
+
+
 def _emit_labels(doc: SchematicDocument, tr: _Transform) -> List[str]:
     return [f"\\node[anchor=south west, font=\\small] at "
             f"{tr.coord((lbl.x, lbl.y))} {{{_escape(lbl.text)}}};"
@@ -1018,6 +1033,11 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
         dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
         for comp in multi_pin:
             lines.extend(_emit_component(comp, tr, warnings, dangling))
+
+    dot_lines = _emit_polarity_dots(graph, tr)
+    if dot_lines:
+        lines.append("% Polarity dots")
+        lines.extend(dot_lines)
 
     power_lines = _emit_power_symbols(doc, tr, net_at, warnings)
     if power_lines:

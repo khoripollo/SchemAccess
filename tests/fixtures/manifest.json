@@ -1,10 +1,10 @@
 {
   "mixed_symbols.kicad_sch": {
-    "components": 15,
-    "nets": 10,
+    "components": 20,
+    "nets": 40,
     "ground": true,
     "power_symbols": 3,
-    "description": "Wide symbol coverage: NPN, PNP, two N-channel JFETs (BF244A identified by part-number family, BF545B by its description), 1P/1S transformer, behavioural (controlled) source, two op amps, DPST switch, diode, R/L/C."
+    "description": "Wide symbol coverage: NPN, PNP, two N-channel JFETs (BF244A identified by part-number family, BF545B by its description), 1P/1S transformer, multi-winding transformer, behavioural (controlled) source, two op amps, switches, diode, LED, a custom L_Polarized inductor carrying a winding-phase dot, and R/L/C."
   },
   "hidden_fields.kicad_sch": {
     "components": 2,

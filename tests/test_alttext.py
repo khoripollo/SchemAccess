@@ -62,3 +62,21 @@ def test_rel3_alt_text_determinism(name: str, level: str) -> None:
     first = alttext.generate(load_graph(name), level)
     second = alttext.generate(load_graph(name), level)
     assert first == second
+
+
+def test_fun6_polarity_dot_reported_in_detailed_alt_text():
+    """A dot is visual information a sighted reader gets for free, so the
+    detailed description has to state it."""
+    from conftest import load_graph
+    from schemaccess import alttext
+
+    graph = load_graph("mixed_symbols.kicad_sch")
+    dotted = sorted(ref for ref, c in graph.components.items() if c.dots)
+    assert dotted, "fixture no longer has a dotted symbol"
+
+    text = alttext.generate(graph, "detailed")
+    for ref in dotted:
+        assert f"labelled {ref} is marked with a" in text, (
+            f"{ref}'s polarity dot is not described")
+    # Short and standard stay uncluttered.
+    assert "dot" not in alttext.generate(graph, "short")

@@ -12,7 +12,8 @@ from typing import List, Optional
 
 from . import sexpr
 from .model import (Junction, Label, LabelKind, LibSymbol, NoConnect, PinDef,
-                    SchematicDocument, SheetRef, SymbolInstance, Wire, snap)
+                    SchematicDocument, SheetRef, SymbolDot, SymbolInstance,
+                    Wire, snap)
 
 
 class KiCadParseError(ValueError):
@@ -129,19 +130,51 @@ def _parse_lib_symbol(node: list, doc: SchematicDocument) -> Optional[LibSymbol]
             elif key == "ki_keywords":
                 lib.keywords = val
 
-    # Pins live in nested unit sub-symbols named e.g.  "R_0_1", "R_1_1".
+    # Pins and graphics live in nested unit sub-symbols named e.g.
+    # "R_0_1" (unit 0, common to all units) and "R_1_1".
     for sub in sexpr.children(node, "symbol"):
         unit = _unit_of_subsymbol(str(sub[1]) if len(sub) > 1 else "")
         for pin in sexpr.children(sub, "pin"):
             pd = _parse_pin_def(pin, unit)
             if pd:
                 lib.pins.append(pd)
-    # Some symbols put pins directly at the top level.
+        for circle in sexpr.children(sub, "circle"):
+            dot = _parse_dot(circle, unit)
+            if dot:
+                lib.dots.append(dot)
+    # Some symbols put pins and graphics directly at the top level.
     for pin in sexpr.children(node, "pin"):
         pd = _parse_pin_def(pin, 0)
         if pd:
             lib.pins.append(pd)
+    for circle in sexpr.children(node, "circle"):
+        dot = _parse_dot(circle, 0)
+        if dot:
+            lib.dots.append(dot)
     return lib
+
+
+def _parse_dot(node: list, unit: int) -> Optional[SymbolDot]:
+    """A *filled* circle: KiCad's polarity / winding-phase dot.
+
+    Circles filled with the outline colour are markers.  Circles with no
+    fill, or filled with the background colour, are body outlines (a
+    transistor's envelope, a voltage source's circle) and belong to the
+    component's own symbol, so they are ignored here.
+    """
+    fill = sexpr.child(node, "fill")
+    ftype = sexpr.child(fill, "type") if fill else None
+    if not ftype or len(ftype) < 2 or str(ftype[1]) != "outline":
+        return None
+    center = sexpr.child(node, "center")
+    radius = sexpr.child(node, "radius")
+    if not center or len(center) < 3 or not radius or len(radius) < 2:
+        return None
+    try:
+        return SymbolDot(x=float(center[1]), y=float(center[2]),
+                         radius=abs(float(radius[1])), unit=unit)
+    except (TypeError, ValueError):
+        return None
 
 
 def _unit_of_subsymbol(name: str) -> int:

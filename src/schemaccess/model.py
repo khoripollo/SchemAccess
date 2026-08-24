@@ -50,10 +50,26 @@ class PinDef:
 
 
 @dataclass
+class SymbolDot:
+    """A filled circle in a library symbol (lib coords, Y **up**).
+
+    KiCad uses these for polarity / winding-phase dots on inductors,
+    transformers and similar parts.  Only *filled* circles are markers;
+    outline-only circles are body art (a transistor's envelope, a source's
+    circle) and are left to the component's own symbol.
+    """
+    x: float
+    y: float
+    radius: float
+    unit: int = 0
+
+
+@dataclass
 class LibSymbol:
     """An embedded library symbol definition from the ``lib_symbols`` block."""
     lib_id: str
     pins: List[PinDef] = field(default_factory=list)
+    dots: List[SymbolDot] = field(default_factory=list)
     reference_prefix: str = "U"
     is_power: bool = False
     description: str = ""
@@ -75,6 +91,10 @@ class LibSymbol:
         return [p for p in self.pins
                 if p.unit in (0, unit)
                 and not (p.hidden and p.etype == "no_connect")]
+
+    def dots_for_unit(self, unit: int) -> List[SymbolDot]:
+        """Polarity dots belonging to *unit* (unit 0 is common to all)."""
+        return [d for d in self.dots if d.unit in (0, unit)]
 
 
 @dataclass
@@ -101,23 +121,27 @@ class SymbolInstance:
         """True when property *key* is visible on the KiCad schematic."""
         return key in self.properties and key not in self.hidden_properties
 
-    def pin_position(self, pin: PinDef) -> Point:
-        """Absolute schematic position of *pin*'s connection point.
+    def lib_point(self, lx: float, ly: float) -> Point:
+        """Absolute schematic position of a point in library space.
 
-        Library pin coordinates are Y-up; schematic coordinates are Y-down.
+        Library coordinates are Y-up; schematic coordinates are Y-down.
         The instance ``angle`` is a counter-clockwise rotation in library
         space.  Mirror ('x' or 'y') is applied after rotation, in schematic
         space, matching KiCad's transform composition.
         """
         a = math.radians(self.angle)
-        rx = pin.x * math.cos(a) - pin.y * math.sin(a)
-        ry = pin.x * math.sin(a) + pin.y * math.cos(a)
+        rx = lx * math.cos(a) - ly * math.sin(a)
+        ry = lx * math.sin(a) + ly * math.cos(a)
         ox, oy = rx, -ry          # library Y-up -> schematic Y-down
         if self.mirror == "x":
             oy = -oy
         elif self.mirror == "y":
             ox = -ox
         return snap(self.x + ox, self.y + oy)
+
+    def pin_position(self, pin: PinDef) -> Point:
+        """Absolute schematic position of *pin*'s connection point."""
+        return self.lib_point(pin.x, pin.y)
 
 
 @dataclass
@@ -298,6 +322,9 @@ class Component:
     #: these; the alt text does not, because a screen-reader description
     #: still needs to name the component it is describing.
     hidden_properties: Set[str] = field(default_factory=set)
+    #: Polarity / winding-phase dots carried by the symbol, as absolute
+    #: schematic positions with their radius in millimetres.
+    dots: List[Tuple[Point, float]] = field(default_factory=list)
 
     def shows(self, key: str) -> bool:
         """True when property *key* is visible on the KiCad schematic."""
@@ -462,6 +489,7 @@ _PREFIX_MAP = {
     "P": ComponentType.CONNECTOR,
     "Y": ComponentType.CRYSTAL,
     "T": ComponentType.TRANSFORMER,
+    "TR": ComponentType.TRANSFORMER,
     "RV": ComponentType.POTENTIOMETER,
 }
 
