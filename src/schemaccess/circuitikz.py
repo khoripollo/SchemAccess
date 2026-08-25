@@ -183,6 +183,36 @@ _CHAR_MAP: Dict[str, str] = {
     "Ω": r"$\Omega$",    # Greek Omega
     "Ω": r"$\Omega$",    # Ohm sign
     "°": r"$^{\circ}$",  # degree sign
+    # Symbols that turn up in component values: phasors (10<90), tolerances,
+    # ratios, exponents and the usual Greek.
+    "∠": r"$\angle$",
+    "±": r"$\pm$",
+    "∓": r"$\mp$",
+    "×": r"$\times$",
+    "·": r"$\cdot$",
+    "÷": r"$\div$",
+    "≈": r"$\approx$",
+    "≤": r"$\leq$",
+    "≥": r"$\geq$",
+    "≠": r"$\neq$",
+    "∞": r"$\infty$",
+    "²": r"$^{2}$",
+    "³": r"$^{3}$",
+    "Δ": r"$\Delta$",
+    "δ": r"$\delta$",
+    "π": r"$\pi$",
+    "ω": r"$\omega$",
+    "θ": r"$\theta$",
+    "φ": r"$\varphi$",
+    "λ": r"$\lambda$",
+    "α": r"$\alpha$",
+    "β": r"$\beta$",
+    "–": "--",       # en dash
+    "—": "---",      # em dash
+    "‘": "`",
+    "’": "'",
+    "“": "``",
+    "”": "''",
     "\n": " ",
     "\r": " ",
     "\t": " ",
@@ -199,7 +229,14 @@ def _escape(text: str) -> str:
             out.append(ch)
         # Other non-ASCII characters are dropped: pdflatex may not have a
         # glyph mapping for them and a missing character beats a crash.
+        # _unmapped() reports them so the loss is never silent.
     return "".join(out)
+
+
+def _unmapped(text: str) -> List[str]:
+    """Characters of *text* that :func:`_escape` would silently drop."""
+    return sorted({ch for ch in text
+                   if ch not in _CHAR_MAP and ord(ch) >= 128})
 
 
 _BARE_NUMBER_RE = re.compile(r"^\d+(?:\.\d+)?$")
@@ -948,6 +985,32 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
     return lines
 
 
+def _warn_unmapped_characters(graph: CircuitGraph, doc: SchematicDocument,
+                              warnings: List[str]) -> None:
+    """Report text that cannot be rendered, instead of quietly losing it.
+
+    ``_escape`` drops non-ASCII characters it has no LaTeX form for, which
+    would otherwise turn a value like ``10<90`` into ``1090`` with nothing
+    to show for it.
+    """
+    sources: List[Tuple[str, str]] = []
+    for ref in sorted(graph.components, key=_ref_sort_key):
+        comp = graph.components[ref]
+        sources.append((f"{ref}'s value", comp.value))
+        sources.append((f"the reference {ref}", comp.ref))
+    for label in doc.labels:
+        sources.append((f"the label '{label.text}'", label.text))
+
+    seen: Dict[str, str] = {}
+    for where, text in sources:
+        for ch in _unmapped(text):
+            seen.setdefault(ch, where)
+    for ch in sorted(seen):
+        warnings.append(
+            f"Character {ch!r} (U+{ord(ch):04X}) has no LaTeX equivalent "
+            f"and was left out of the drawing (in {seen[ch]}).")
+
+
 def _emit_polarity_dots(graph: CircuitGraph, tr: _Transform) -> List[str]:
     """Filled dots the KiCad symbols carry (winding phase, polarity).
 
@@ -1033,6 +1096,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
         dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
         for comp in multi_pin:
             lines.extend(_emit_component(comp, tr, warnings, dangling))
+
+    _warn_unmapped_characters(graph, doc, warnings)
 
     dot_lines = _emit_polarity_dots(graph, tr)
     if dot_lines:

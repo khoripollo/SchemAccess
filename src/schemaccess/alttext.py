@@ -54,6 +54,18 @@ _UNIT_TOKENS = ("ohms", "ohm", "farads", "farad", "henries", "henry",
 _NUMBER_RE = re.compile(r"^(\d+(?:[.,]\d+)?|[.,]\d+)\s*(.*)$")
 _RKM_RE = re.compile(r"^([A-Za-zµΩ]+)(\d+)$")
 
+# Phasors in polar form: "10<90", "10@90", "10 angle -45deg".  KiCad users
+# typically type the Unicode angle sign; '<' and '@' are common ASCII
+# stand-ins.
+#: Joins a magnitude to its phase angle.  Kept as a constant so the phrase
+#: can be split back off when it reads better after the component name.
+_ANGLE_PHRASE = " at an angle of "
+
+_POLAR_RE = re.compile(
+    r"^(.*?)\s*(?:∠|<|@|\bangle\b)\s*([+-]?\d+(?:[.,]\d+)?\s*°?)\s*"
+    r"(?:deg|degs|degrees?)?$",
+    re.IGNORECASE)
+
 
 def _prefix_word(token: str) -> Optional[str]:
     """Return the prefix word for a metric-prefix token ('' for none)."""
@@ -77,9 +89,11 @@ def format_value(value: str, ctype: ComponentType) -> Optional[str]:
     Examples: ``'100'`` (resistor) -> ``'100 Ohm'``; ``'4.7k'`` ->
     ``'4.7 kiloohm'``; ``'22nF'`` -> ``'22 nanofarad'``; ``'5V'`` ->
     ``'5 Volt'``; ``'1MEG'`` -> ``'1 megaohm'``; ``'4k7'`` ->
-    ``'4.7 kiloohm'``.  Returns ``None`` when the component type has no
-    natural unit or the value is missing/placeholder ('R', 'C', '~', '?',
-    '') or unparseable, so callers can simply omit it.
+    ``'4.7 kiloohm'``.  Phasors written in polar form (``'10<90'``,
+    ``'10@90'``) become ``'10 Volt at an angle of 90 degrees'``.  Returns
+    ``None`` when the component type has no natural unit or the value is
+    missing/placeholder ('R', 'C', '~', '?', '') or unparseable, so callers
+    can simply omit it.
     """
     unit = _UNIT_FOR_TYPE.get(ctype)
     if unit is None:
@@ -87,6 +101,15 @@ def format_value(value: str, ctype: ComponentType) -> Optional[str]:
     text = (value or "").strip()
     if not text or not any(ch.isdigit() for ch in text):
         return None
+
+    polar = _POLAR_RE.match(text)
+    if polar is not None:
+        magnitude = format_value(polar.group(1), ctype)
+        if magnitude is None:
+            return None
+        angle = polar.group(2).replace(",", ".").rstrip("°").strip()
+        degrees = "degree" if angle in ("1", "-1") else "degrees"
+        return f"{magnitude}{_ANGLE_PHRASE}{angle} {degrees}"
     match = _NUMBER_RE.match(text)
     if match is None:
         return None
@@ -161,11 +184,20 @@ _PLACEHOLDER_PIN_NAMES = {"", "~", "?"}
 
 
 def _component_phrase(comp: Component) -> str:
-    """'a 100 Ohm resistor labelled R2' / 'a resistor labelled R3'."""
+    """'a 100 Ohm resistor labelled R2' / 'a resistor labelled R3'.
+
+    A phase angle is moved after the reference, so a phasor reads as
+    'a 10 Volt AC voltage source labelled V1 at an angle of 90 degrees'
+    rather than jamming the angle between the magnitude and the type.
+    """
     formatted = format_value(comp.value, comp.ctype)
+    angle_suffix = ""
+    if formatted and _ANGLE_PHRASE in formatted:
+        formatted, angle = formatted.split(_ANGLE_PHRASE, 1)
+        angle_suffix = f"{_ANGLE_PHRASE}{angle}"
     type_word = comp.ctype.value
     core = f"{formatted} {type_word}" if formatted else type_word
-    return f"{_article(core)} {core} labelled {comp.ref}"
+    return f"{_article(core)} {core} labelled {comp.ref}{angle_suffix}"
 
 
 #: Types whose dot marks winding phase rather than terminal polarity.

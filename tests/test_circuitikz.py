@@ -879,3 +879,39 @@ def test_fun4_dot_follows_symbol_rotation():
     inst.angle = 0.0
     inst.mirror = "y"
     assert inst.lib_point(1.27, 0.0) == (98.73, 100.0)
+
+
+# ---------------------------------------------------------------------------
+# Value text: symbols that are not plain ASCII must survive into LaTeX
+# rather than being silently dropped (mixed_symbols has V1 = "10<90" with
+# the Unicode angle sign).
+# ---------------------------------------------------------------------------
+
+def test_com2_polar_value_survives_escaping():
+    """A phasor value keeps its angle sign in the drawing."""
+    graph = _mixed()
+    v1 = graph.components["V1"]
+    assert "\u2220" in v1.value, "fixture no longer carries a polar value"
+
+    tex = circuitikz.generate(graph)
+    line = next(ln for ln in tex.splitlines() if "l={V1}" in ln)
+    assert "$\\angle$" in line, f"angle sign lost: {line}"
+    assert "1090" not in line, f"angle sign dropped silently: {line}"
+
+
+def test_com2_unmapped_characters_are_reported_not_silently_dropped():
+    """A character with no LaTeX form is warned about, so a mangled value
+    can never pass unnoticed the way '10<90' -> '1090' did."""
+    from schemaccess.circuitikz import _escape, _unmapped
+
+    exotic = "12\u2603"          # snowman: no sensible LaTeX equivalent
+    assert _escape(exotic) == "12"
+    assert _unmapped(exotic) == ["\u2603"]
+    # ...and a mapped one is not reported.
+    assert _unmapped("10\u222090") == []
+
+    graph = _mixed()
+    graph.components["R1"].value = exotic
+    circuitikz.generate_body(graph)
+    assert any("U+2603" in w for w in graph.warnings), (
+        f"dropped character was not reported: {graph.warnings}")

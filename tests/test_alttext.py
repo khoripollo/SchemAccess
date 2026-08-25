@@ -80,3 +80,31 @@ def test_fun6_polarity_dot_reported_in_detailed_alt_text():
             f"{ref}'s polarity dot is not described")
     # Short and standard stay uncluttered.
     assert "dot" not in alttext.generate(graph, "short")
+
+
+def test_fun6_polar_value_described_in_words():
+    """A phasor is spoken as magnitude plus phase, with the angle after the
+    reference so the sentence stays readable."""
+    from schemaccess.alttext import format_value
+    from schemaccess.model import ComponentType
+
+    ac = ComponentType.AC_SOURCE
+    assert format_value("10\u222090", ac) == (
+        "10 Volt at an angle of 90 degrees")
+    assert format_value("10<90", ac) == "10 Volt at an angle of 90 degrees"
+    assert format_value("10@90", ac) == "10 Volt at an angle of 90 degrees"
+    assert format_value("1.5<-90deg", ac) == (
+        "1.5 Volt at an angle of -90 degrees")
+    assert format_value("10<1", ac) == "10 Volt at an angle of 1 degree"
+    # Non-polar values are untouched.
+    assert format_value("5V", ac) == "5 Volt"
+
+
+def test_fun6_polar_source_reads_naturally():
+    """The angle follows the reference designator, not the magnitude."""
+    from conftest import load_graph
+    from schemaccess import alttext
+
+    text = alttext.generate(load_graph("mixed_symbols.kicad_sch"), "standard")
+    assert "10 Volt AC voltage source labelled V1 at an angle of 90 degrees" \
+        in text, text
