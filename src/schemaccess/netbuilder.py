@@ -259,6 +259,7 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
                 mirror=inst.mirror,
                 properties=dict(inst.properties),
                 hidden_properties=set(inst.hidden_properties),
+                body_shape=lib.body_shape,
             )
             graph.components[inst.reference] = comp
         for pin in lib.pins_for_unit(inst.unit):

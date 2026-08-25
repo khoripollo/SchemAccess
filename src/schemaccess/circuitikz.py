@@ -480,8 +480,25 @@ def _bipole_options(comp: Component, key: str) -> str:
     return ", ".join(opts)
 
 
+#: Diamond-bodied equivalents, used when the KiCad symbol is drawn as a
+#: diamond.  The shape follows the schematic's artwork; the component type
+#: (and so the alt text) still follows what the part actually is.
+_DIAMOND_KEYS: Dict[ComponentType, str] = {
+    ComponentType.CURRENT_SOURCE: "cisource",
+    ComponentType.VOLTAGE_SOURCE: "cvsource",
+    ComponentType.AC_SOURCE: "cvsource",
+}
+
+
+def _bipole_key(comp: Component) -> str:
+    """The circuitikz bipole for *comp*, honouring its drawn outline."""
+    if comp.body_shape == "diamond" and comp.ctype in _DIAMOND_KEYS:
+        return _DIAMOND_KEYS[comp.ctype]
+    return _BIPOLE_KEYS[comp.ctype]
+
+
 def _emit_two_terminal(comp: Component, tr: _Transform) -> List[str]:
-    key = _BIPOLE_KEYS[comp.ctype]
+    key = _bipole_key(comp)
     if comp.ctype == ComponentType.POTENTIOMETER and len(comp.pins) == 3:
         return _emit_potentiometer(comp, tr)
     first, second = _bipole_pin_order(comp)

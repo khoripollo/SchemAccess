@@ -142,6 +142,9 @@ def _parse_lib_symbol(node: list, doc: SchematicDocument) -> Optional[LibSymbol]
             dot = _parse_dot(circle, unit)
             if dot:
                 lib.dots.append(dot)
+        for poly in sexpr.children(sub, "polyline"):
+            if lib.body_shape is None and _is_diamond(poly):
+                lib.body_shape = "diamond"
     # Some symbols put pins and graphics directly at the top level.
     for pin in sexpr.children(node, "pin"):
         pd = _parse_pin_def(pin, 0)
@@ -152,6 +155,39 @@ def _parse_lib_symbol(node: list, doc: SchematicDocument) -> Optional[LibSymbol]
         if dot:
             lib.dots.append(dot)
     return lib
+
+
+def _is_diamond(poly: list) -> bool:
+    """True when a polyline is a closed, axis-aligned rhombus.
+
+    KiCad draws dependent/behavioural sources this way, and people copy
+    that symbol for their own sources.  Recognising the outline lets the
+    drawing keep the shape the schematic actually shows, instead of
+    guessing from what the part is called.
+    """
+    pts = sexpr.child(poly, "pts")
+    if not pts:
+        return False
+    points = []
+    for xy in sexpr.children(pts, "xy"):
+        if len(xy) >= 3:
+            try:
+                points.append((float(xy[1]), float(xy[2])))
+            except (TypeError, ValueError):
+                return False
+    if len(points) >= 2 and points[0] == points[-1]:
+        points = points[:-1]        # drop the closing repeat
+    if len(points) != 4 or len(set(points)) != 4:
+        return False
+
+    cx = sum(p[0] for p in points) / 4.0
+    cy = sum(p[1] for p in points) / 4.0
+    eps = 1e-6
+    on_vertical = [p for p in points if abs(p[0] - cx) < eps]
+    on_horizontal = [p for p in points if abs(p[1] - cy) < eps]
+    # A diamond has one vertex above and one below the centre, and one to
+    # each side - a rectangle would have none on either axis.
+    return len(on_vertical) == 2 and len(on_horizontal) == 2
 
 
 def _parse_dot(node: list, unit: int) -> Optional[SymbolDot]:

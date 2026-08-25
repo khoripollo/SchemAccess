@@ -965,4 +965,20 @@ def test_fun5_controlled_sources_use_the_matching_diamond():
 
     tex = circuitikz.generate(_mixed())
     assert "cvsource" in tex          # B1, a 5V behavioural source
-    assert "to[I, a={5A}]" in tex     # B2, the custom independent source
+    # B2 is an independent current source by name, but its KiCad symbol is
+    # drawn as a diamond - the drawing follows the artwork.
+    assert "to[cisource, a={5A}]" in tex
+
+
+def test_fun5_drawn_outline_wins_over_the_component_name():
+    """A source drawn as a diamond stays a diamond; one drawn as a circle
+    stays a circle.  The shape comes from the schematic, not from what we
+    infer the part to be."""
+    graph = _mixed()
+    assert graph.components["B2"].body_shape == "diamond"
+    assert graph.components["I1"].body_shape is None   # IDC is a circle
+    assert graph.components["V2"].body_shape is None
+
+    tex = circuitikz.generate(graph)
+    assert "to[I, l={I1}" in tex, "IDC should keep circuitikz's circle"
+    assert "to[V, l={V2}" in tex, "VDC should keep circuitikz's circle"

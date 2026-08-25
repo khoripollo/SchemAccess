@@ -75,6 +75,10 @@ class LibSymbol:
     is_power: bool = False
     description: str = ""
     keywords: str = ""
+    #: Outline the symbol is drawn with, when it is one we recognise
+    #: ('diamond' today).  The drawing follows the artwork, so a source
+    #: drawn as a diamond stays a diamond whatever it is called.
+    body_shape: Optional[str] = None
 
     @property
     def hints(self) -> str:
@@ -321,6 +325,9 @@ class Component:
     mirror: str = ""
     pins: Dict[str, PinConnection] = field(default_factory=dict)
     properties: Dict[str, str] = field(default_factory=dict)
+    #: Outline of the KiCad symbol, when recognised (see
+    #: :attr:`LibSymbol.body_shape`).
+    body_shape: Optional[str] = None
     #: Property names hidden on the KiCad schematic (see
     #: :attr:`SymbolInstance.hidden_properties`).  The drawing honours
     #: these; the alt text does not, because a screen-reader description
