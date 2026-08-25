@@ -129,7 +129,6 @@ schemaccess INPUT.kicad_sch [options]
 | `--no-alt-text` | Skip the natural-language alt text |
 | `--no-image` | Skip CircuiTikZ/LaTeX and rendered images |
 | `-f`, `--format {pdf,svg,png,all}` | Image format(s) to render (default: `all`) |
-| `-d`, `--detail {short,standard,detailed}` | Alt-text detail level (default: `standard`) |
 | `--no-junction-dots` | Omit the connection dots drawn where wires meet (included by default, as KiCad draws them) |
 | `--print-alt` | Also print the generated alt text to stdout |
 | `-q`, `--quiet` | Suppress progress and `wrote:` lines (warnings/errors still go to stderr) |
