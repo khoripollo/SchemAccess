@@ -90,35 +90,36 @@ def test_fun1_rc_divider_net_membership(load) -> None:
 # ---------------------------------------------------------------------------
 
 def test_fun1_conversion_report(manifest) -> None:
-    """Print symbols-in / components-out / described-in-alt-text per file."""
-    import re as _re
+    """Report, per schematic, what went in and what came out."""
+    from schemaccess import alttext, circuitikz
+    from schemaccess.pipeline import summarize
 
-    from schemaccess import alttext
-
-    header = (f"\n{'schematic':32} {'symbols':>8} {'parsed':>7} "
-              f"{'nets':>6} {'in alt text':>12}")
-    rows = [header, "-" * len(header.strip())]
-    missing_all = {}
+    problems = {}
+    print()  # start the report on its own line
 
     for name in VALID_FIXTURES:
         graph = load_graph(name)
-        doc = graph.document
-        # Every placed symbol, including the power symbols that are not
-        # components (grounds, rails); parsed counts real components only.
-        symbols = len(doc.symbols) if doc else 0
+        fallbacks: set = set()
+        tikz = circuitikz.generate(graph, fallbacks=fallbacks)
         text = alttext.generate(graph, "detailed")
-        described = [
-            ref for ref in graph.components
-            if _re.search(rf"(?<![A-Za-z0-9.]){_re.escape(ref)}"
-                          rf"(?![A-Za-z0-9])", text)
-        ]
-        rows.append(f"{name:32} {symbols:>8} {len(graph.components):>7} "
-                    f"{len(graph.nets):>6} "
-                    f"{len(described):>7}/{len(graph.components):<4}")
-        gap = sorted(set(graph.components) - set(described))
-        if gap:
-            missing_all[name] = gap
+        stats = summarize(graph, tikz, text, fallbacks)
 
-    print("\n".join(rows))
-    assert not missing_all, (
-        f"components missing from the alt text: {missing_all}")
+        drew = "OK  " if stats.drawn == stats.components else "FAIL"
+        told = "OK  " if stats.described == stats.components else "FAIL"
+        print(f"{name}")
+        print(f"    {stats.components} components in KiCad schematic, "
+              f"{stats.nodes} nodes ({stats.nets} nets)")
+        print(f"    {drew} {stats.drawn} converted to CircuiTikZ symbols")
+        print(f"    {told} {stats.described} described in the alt text")
+        if stats.fallbacks:
+            print(f"         not converted: {', '.join(stats.fallbacks)}")
+        if stats.undescribed:
+            print(f"         not described: {', '.join(stats.undescribed)}")
+
+        if stats.fallbacks or stats.undescribed:
+            problems[name] = {
+                "not converted": stats.fallbacks,
+                "not described": stats.undescribed,
+            }
+
+    assert not problems, f"components that did not convert: {problems}"

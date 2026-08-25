@@ -45,6 +45,11 @@ from schemaccess.pipeline import PipelineOptions, PipelineResult, run_pipeline
 FORMAT_LABELS = ("PDF", "SVG", "PNG", "All")
 FORMAT_VALUES = {"PDF": "pdf", "SVG": "svg", "PNG": "png", "All": "all"}
 
+#: The GUI always produces the fullest description - there is no reason to
+#: hand a blind reader a shorter one - so the detail level is fixed rather
+#: than offered as a choice.  The CLI still exposes -d for scripting.
+GUI_DETAIL_LEVEL = "detailed"
+
 DETAIL_LABELS = ("Short", "Standard", "Detailed")
 DETAIL_VALUES = {"Short": "short", "Standard": "standard",
                  "Detailed": "detailed"}
@@ -69,7 +74,7 @@ def make_pipeline_options(
     generate_alt_text: bool,
     generate_image: bool,
     export_format_label: str,
-    detail_label: str,
+    detail_label: str = "Detailed",
     junction_dots: bool = True,
 ) -> PipelineOptions:
     """Translate GUI widget state into a :class:`PipelineOptions`.
@@ -86,7 +91,7 @@ def make_pipeline_options(
         generate_alt_text=generate_alt_text,
         generate_image=generate_image,
         export_format=FORMAT_VALUES.get(export_format_label, "all"),
-        detail_level=DETAIL_VALUES.get(detail_label, "standard"),
+        detail_level=DETAIL_VALUES.get(detail_label, GUI_DETAIL_LEVEL),
         junction_dots=junction_dots,
     )
 
@@ -211,16 +216,6 @@ class MainWindow(QMainWindow):
             "when Generate Image is checked.")
         self.format_label.setBuddy(self.format_combo)
 
-        self.detail_label = QLabel("&Description detail:", options_group)
-        self.detail_combo = QComboBox(options_group)
-        self.detail_combo.addItems(list(DETAIL_LABELS))
-        self.detail_combo.setCurrentText("Standard")
-        self.detail_combo.setAccessibleName("Description detail level")
-        self.detail_combo.setAccessibleDescription(
-            "How verbose the alt text description is: Short, Standard, or "
-            "Detailed. Only used when Generate Alt Text is checked.")
-        self.detail_label.setBuddy(self.detail_combo)
-
         self.junction_check = QCheckBox("Show &junction dots", options_group)
         self.junction_check.setChecked(True)
         self.junction_check.setAccessibleName("Show junction dots")
@@ -232,11 +227,9 @@ class MainWindow(QMainWindow):
 
         options_layout.addWidget(self.alt_text_check, 0, 0)
         options_layout.addWidget(self.image_check, 0, 1)
-        options_layout.addWidget(self.detail_label, 1, 0)
-        options_layout.addWidget(self.detail_combo, 1, 1)
-        options_layout.addWidget(self.format_label, 2, 0)
-        options_layout.addWidget(self.format_combo, 2, 1)
-        options_layout.addWidget(self.junction_check, 3, 0, 1, 2)
+        options_layout.addWidget(self.format_label, 1, 0)
+        options_layout.addWidget(self.format_combo, 1, 1)
+        options_layout.addWidget(self.junction_check, 2, 0, 1, 2)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -299,6 +292,19 @@ class MainWindow(QMainWindow):
         results_group = QGroupBox("Results", central)
         results_layout = QVBoxLayout(results_group)
 
+        self.summary_label = QLabel("Con&version summary:", results_group)
+        self.summary_edit = QPlainTextEdit(results_group)
+        self.summary_edit.setReadOnly(True)
+        self.summary_edit.setMaximumHeight(110)
+        self.summary_edit.setPlaceholderText(
+            "Component and node counts appear here after generating.")
+        self.summary_edit.setAccessibleName("Conversion summary")
+        self.summary_edit.setAccessibleDescription(
+            "How many components and nodes were found in the KiCad "
+            "schematic, and how many were converted to CircuiTikZ symbols "
+            "and described in the alt text.")
+        self.summary_label.setBuddy(self.summary_edit)
+
         self.results_label = QLabel("Al&t text result:", results_group)
         self.results_edit = QPlainTextEdit(results_group)
         self.results_edit.setReadOnly(True)
@@ -322,6 +328,8 @@ class MainWindow(QMainWindow):
             "Open the output folder in the system file manager.")
         self.open_folder_button.clicked.connect(self._open_output_folder)
 
+        results_layout.addWidget(self.summary_label)
+        results_layout.addWidget(self.summary_edit)
         results_layout.addWidget(self.results_label)
         results_layout.addWidget(self.results_edit, 1)
         results_layout.addWidget(self.preview_label)
@@ -334,14 +342,14 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.input_edit, self.browse_button)
         QWidget.setTabOrder(self.browse_button, self.alt_text_check)
         QWidget.setTabOrder(self.alt_text_check, self.image_check)
-        QWidget.setTabOrder(self.image_check, self.detail_combo)
-        QWidget.setTabOrder(self.detail_combo, self.format_combo)
+        QWidget.setTabOrder(self.image_check, self.format_combo)
         QWidget.setTabOrder(self.format_combo, self.junction_check)
         QWidget.setTabOrder(self.junction_check, self.output_edit)
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
         QWidget.setTabOrder(self.generate_button, self.progress_log)
-        QWidget.setTabOrder(self.progress_log, self.results_edit)
+        QWidget.setTabOrder(self.progress_log, self.summary_edit)
+        QWidget.setTabOrder(self.summary_edit, self.results_edit)
         QWidget.setTabOrder(self.results_edit, self.open_folder_button)
 
     # ------------------------------------------------------------ settings
@@ -360,9 +368,6 @@ class MainWindow(QMainWindow):
         fmt = str(s.value("options/export_format", "All", type=str))
         if fmt in FORMAT_LABELS:
             self.format_combo.setCurrentText(fmt)
-        detail = str(s.value("options/detail_level", "Standard", type=str))
-        if detail in DETAIL_LABELS:
-            self.detail_combo.setCurrentText(detail)
         self.junction_check.setChecked(
             bool(s.value("options/junction_dots", True, type=bool)))
 
@@ -375,7 +380,6 @@ class MainWindow(QMainWindow):
                    self.alt_text_check.isChecked())
         s.setValue("options/generate_image", self.image_check.isChecked())
         s.setValue("options/export_format", self.format_combo.currentText())
-        s.setValue("options/detail_level", self.detail_combo.currentText())
         s.setValue("options/junction_dots", self.junction_check.isChecked())
         s.sync()
 
@@ -421,9 +425,6 @@ class MainWindow(QMainWindow):
         image_on = self.image_check.isChecked()
         self.format_combo.setEnabled(image_on)
         self.format_label.setEnabled(image_on)
-        alt_on = self.alt_text_check.isChecked()
-        self.detail_combo.setEnabled(alt_on)
-        self.detail_label.setEnabled(alt_on)
 
     def _update_generate_enabled(self) -> None:
         """Generate needs an input file and at least one output selected."""
@@ -440,7 +441,6 @@ class MainWindow(QMainWindow):
             generate_alt_text=self.alt_text_check.isChecked(),
             generate_image=self.image_check.isChecked(),
             export_format_label=self.format_combo.currentText(),
-            detail_label=self.detail_combo.currentText(),
             junction_dots=self.junction_check.isChecked(),
         )
 
@@ -456,6 +456,7 @@ class MainWindow(QMainWindow):
             self.output_edit.setText(os.path.normpath(options.output_dir))
 
         self.progress_log.clear()
+        self.summary_edit.clear()
         self.results_edit.clear()
         self.preview_label.clear()
         self.preview_label.setVisible(False)
@@ -495,6 +496,8 @@ class MainWindow(QMainWindow):
         if result is None:
             self._report_failure("Pipeline returned an unexpected result.")
             return
+
+        self.summary_edit.setPlainText("\n".join(result.stats.summary_lines()))
 
         for warning in result.warnings:
             self._append_progress(f"Warning: {warning}")
@@ -614,3 +617,5 @@ class MainWindow(QMainWindow):
             self._thread.quit()
             self._thread.wait(5000)
         super().closeEvent(event)
+
+

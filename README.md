@@ -141,8 +141,6 @@ The main window walkthrough, top to bottom:
    - **Generate Alt Text** (Alt+A): write the natural-language description
      to a text file and show it in the results area.
    - **Generate Image** (Alt+M): export the CircuiTikZ rendering.
-   - **Description detail** (Alt+D): *Short*, *Standard* or *Detailed*.
-     Enabled only while *Generate Alt Text* is checked.
    - **Export format** (Alt+E): *PDF*, *SVG*, *PNG* or *All*. Enabled only
      while *Generate Image* is checked.
    - **Show junction dots** (Alt+J): draw the filled dot where three or more
@@ -156,13 +154,20 @@ The main window walkthrough, top to bottom:
 5. **Progress** — a read-only log of pipeline stages, warnings, errors and
    the paths of produced files. Every line is mirrored to the status bar so
    screen readers announce it.
-6. **Results** — the generated alt text in a read-only, screen-reader
-   friendly text area; a scaled preview of the PNG (when one was rendered),
-   whose accessible description *is* the alt text; and an **Open Output
-   Folder** button (Alt+O).
+6. **Results** — a **Conversion summary** (Alt+V) giving the component and
+   node counts found in the schematic and how many of them were converted to
+   CircuiTikZ symbols and described in the alt text, naming anything that
+   was not; the generated alt text in a read-only, screen-reader friendly
+   text area; a scaled preview of the PNG (when one was rendered), whose
+   accessible description *is* the alt text; and an **Open Output Folder**
+   button (Alt+O).
 
-Your options (checkboxes, detail level, format, output folder) are remembered
-between sessions.
+The GUI always writes the **detailed** description — there is no reason to
+hand a blind reader a shorter one. The CLI keeps `-d/--detail` for scripting
+when a terser summary is wanted.
+
+Your options (checkboxes, format, junction dots, output folder) are
+remembered between sessions.
 
 ### CLI
 

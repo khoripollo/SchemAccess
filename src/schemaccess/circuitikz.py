@@ -540,7 +540,8 @@ def _classify_gate_pins(comp: Component) -> Tuple[List[PinConnection],
 
 
 def _emit_gate(comp: Component, tr: _Transform, warnings: List[str],
-               dangling: Set[int]) -> List[str]:
+               dangling: Set[int],
+               fallbacks: Optional[Set[str]] = None) -> List[str]:
     style = _GATE_STYLES[comp.ctype]
     inputs, outputs, other = _classify_gate_pins(comp)
     max_inputs = 1 if comp.ctype in (ComponentType.NOT_GATE,
@@ -548,7 +549,7 @@ def _emit_gate(comp: Component, tr: _Transform, warnings: List[str],
     if len(outputs) != 1 or not 1 <= len(inputs) <= max_inputs:
         warnings.append(
             f"{comp.ref}: gate pin pattern not recognised; drawing a box.")
-        return _emit_generic_box(comp, tr)
+        return _emit_generic_box(comp, tr, fallbacks)
     name = _node_name(comp.ref)
     cx, cy = tr.point(comp.position)
     lines = [f"\\node[{style}] ({name}) at {_xy(cx, cy)} {{}};"]
@@ -765,8 +766,8 @@ def _emit_transistor(comp: Component, tr: _Transform,
     return lines
 
 
-def _emit_jfet(comp: Component, tr: _Transform,
-               warnings: List[str]) -> List[str]:
+def _emit_jfet(comp: Component, tr: _Transform, warnings: List[str],
+               fallbacks: Optional[Set[str]] = None) -> List[str]:
     """Draw a JFET the way KiCad does: a channel bar with the gate entering
     on its centre line, stepped drain/source leads and a body circle.
 
@@ -781,7 +782,7 @@ def _emit_jfet(comp: Component, tr: _Transform,
             by_name[letter] = comp.pins[number]
     if len(by_name) != 3:
         warnings.append(f"{comp.ref}: JFET pins not recognised; drawing a box.")
-        return _emit_generic_box(comp, tr)
+        return _emit_generic_box(comp, tr, fallbacks)
 
     dx, dy = tr.point(by_name["D"].position)
     sx, sy = tr.point(by_name["S"].position)
@@ -820,18 +821,19 @@ def _emit_jfet(comp: Component, tr: _Transform,
     return lines
 
 
-def _emit_transformer(comp: Component, tr: _Transform) -> List[str]:
+def _emit_transformer(comp: Component, tr: _Transform,
+                      fallbacks: Optional[Set[str]] = None) -> List[str]:
     """A circuitikz transformer, scaled so its winding taps line up with
     the KiCad pins and every lead runs straight across."""
     pts = {n: tr.point(comp.pins[n].position)
            for n in sorted(comp.pins, key=_pin_sort_key)}
     if len(pts) != 4:
-        return _emit_generic_box(comp, tr)
+        return _emit_generic_box(comp, tr, fallbacks)
 
     xs = sorted({round(p[0], 3) for p in pts.values()})
     ys = sorted({round(p[1], 3) for p in pts.values()})
     if len(xs) != 2 or len(ys) != 2:
-        return _emit_generic_box(comp, tr)
+        return _emit_generic_box(comp, tr, fallbacks)
 
     cx = (xs[0] + xs[1]) / 2.0
     cy = (ys[0] + ys[1]) / 2.0
@@ -851,8 +853,15 @@ def _emit_transformer(comp: Component, tr: _Transform) -> List[str]:
     return lines
 
 
-def _emit_generic_box(comp: Component, tr: _Transform) -> List[str]:
-    """Rectangle body with exact pin stubs, for ICs/connectors/unknowns."""
+def _emit_generic_box(comp: Component, tr: _Transform,
+                      fallbacks: Optional[Set[str]] = None) -> List[str]:
+    """Rectangle body with exact pin stubs, for ICs/connectors/unknowns.
+
+    Records the reference in *fallbacks* so callers can report which
+    components had no dedicated symbol.
+    """
+    if fallbacks is not None:
+        fallbacks.add(comp.ref)
     numbers = sorted(comp.pins, key=_pin_sort_key)
     pts = {n: tr.point(comp.pins[n].position) for n in numbers}
     if not pts:
@@ -945,19 +954,20 @@ def _label_node(comp: Component, x: float, y: float) -> List[str]:
 
 
 def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
-                    dangling: Set[int]) -> List[str]:
+                    dangling: Set[int],
+                    fallbacks: Optional[Set[str]] = None) -> List[str]:
     if comp.ctype == ComponentType.OPAMP and len(comp.pins) >= 3:
         return _emit_opamp(comp, tr, warnings, dangling)
     if comp.ctype in (ComponentType.NJFET, ComponentType.PJFET) \
             and len(comp.pins) >= 3:
-        return _emit_jfet(comp, tr, warnings)
+        return _emit_jfet(comp, tr, warnings, fallbacks)
     if comp.ctype in _TRANSISTOR_STYLES and len(comp.pins) >= 3:
         return _emit_transistor(comp, tr, warnings)
     if comp.ctype == ComponentType.TRANSFORMER:
-        return _emit_transformer(comp, tr)
+        return _emit_transformer(comp, tr, fallbacks)
     if comp.ctype in _GATE_STYLES and len(comp.pins) >= 2:
-        return _emit_gate(comp, tr, warnings, dangling)
-    return _emit_generic_box(comp, tr)
+        return _emit_gate(comp, tr, warnings, dangling, fallbacks)
+    return _emit_generic_box(comp, tr, fallbacks)
 
 
 # ---------------------------------------------------------------------------
@@ -1054,7 +1064,8 @@ def _emit_labels(doc: SchematicDocument, tr: _Transform) -> List[str]:
 # Public API
 # ---------------------------------------------------------------------------
 
-def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
+def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
+                  fallbacks: Optional[Set[str]] = None) -> str:
     """Return only the ``\\begin{circuitikz}...\\end{circuitikz}`` body.
 
     Set *junction_dots* to False to omit the filled dots KiCad draws where
@@ -1113,7 +1124,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
         # supplies, gate power) on them get no lead drawn.
         dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
         for comp in multi_pin:
-            lines.extend(_emit_component(comp, tr, warnings, dangling))
+            lines.extend(
+                _emit_component(comp, tr, warnings, dangling, fallbacks))
 
     _warn_unmapped_characters(graph, doc, warnings)
 
@@ -1140,7 +1152,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
     return "\n".join(lines)
 
 
-def generate(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
+def generate(graph: CircuitGraph, *, junction_dots: bool = True,
+             fallbacks: Optional[Set[str]] = None) -> str:
     """Return a complete standalone LaTeX document (circuitikz) for *graph*.
 
     The document compiles with ``pdflatex`` without modification, preserves
@@ -1161,7 +1174,8 @@ def generate(graph: CircuitGraph, *, junction_dots: bool = True) -> str:
         r"\documentclass[border=4pt]{standalone}",
         r"\usepackage[RPvoltages]{circuitikz}",
         r"\begin{document}",
-        generate_body(graph, junction_dots=junction_dots),
+        generate_body(graph, junction_dots=junction_dots,
+                      fallbacks=fallbacks),
         r"\end{document}",
         "",
     ])

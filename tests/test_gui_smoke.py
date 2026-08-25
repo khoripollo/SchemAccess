@@ -57,3 +57,45 @@ def test_gui_generate_button_exists_and_starts_disabled(window) -> None:
     # No input file has been chosen yet, so Generate must be disabled.
     assert window.input_edit.text() == ""
     assert not button.isEnabled()
+
+
+def test_gui_has_no_detail_choice(window):
+    """The GUI always writes the detailed description, so there is no
+    detail dropdown to get wrong."""
+    from schemaccess.gui.main_window import GUI_DETAIL_LEVEL
+
+    assert not hasattr(window, "detail_combo")
+    assert not hasattr(window, "detail_label")
+    window.input_edit.setText("board.kicad_sch")
+    assert window.current_options().detail_level == GUI_DETAIL_LEVEL
+    assert GUI_DETAIL_LEVEL == "detailed"
+
+
+def test_gui_shows_a_conversion_summary(window):
+    """The results area reports counts in and counts converted."""
+    from schemaccess.pipeline import ConversionStats
+
+    assert window.summary_edit.isReadOnly()
+    assert window.summary_edit.accessibleName() == "Conversion summary"
+
+    stats = ConversionStats(symbols=28, components=25, nets=46, nodes=11,
+                            drawn=24, described=25, fallbacks=["TR1"],
+                            has_drawing=True, has_text=True)
+    text = "\n".join(stats.summary_lines())
+    assert "25 components in the KiCad schematic (28 symbols placed)." in text
+    assert "11 nodes (46 nets in total)." in text
+    assert "24 of 25 components converted to CircuiTikZ symbols." in text
+    assert "25 of 25 components described in the alt text." in text
+    assert "TR1" in text, "a component that did not convert must be named"
+
+
+def test_conversion_summary_omits_outputs_that_were_not_produced():
+    """A text-only run must not claim '0 converted' for a drawing that was
+    never requested."""
+    from schemaccess.pipeline import ConversionStats
+
+    stats = ConversionStats(symbols=3, components=2, nets=2, nodes=2,
+                            described=2, has_text=True)
+    text = "\n".join(stats.summary_lines())
+    assert "converted to CircuiTikZ" not in text
+    assert "2 of 2 components described in the alt text." in text

@@ -19,11 +19,12 @@ Stages (reported through the progress callback):
 from __future__ import annotations
 
 import os
+import re
 from dataclasses import dataclass, field
-from typing import Callable, Dict, List, Optional
+from typing import Callable, Dict, List, Optional, Set
 
 from . import alttext, circuitikz, kicad_parser, netbuilder, renderer
-from .model import CircuitGraph
+from .model import CircuitGraph, NetKind
 
 ProgressFn = Callable[[str], None]
 
@@ -44,6 +45,52 @@ class PipelineOptions:
 
 
 @dataclass
+class ConversionStats:
+    """How much of the schematic made it through the conversion.
+
+    ``components`` counts real parts (power symbols such as grounds and
+    rails are placed symbols but not components).  ``nodes`` counts nets
+    that actually join two or more pins, which is what the alt text calls
+    a node.  ``drawn`` excludes components that had no dedicated symbol
+    and fell back to a labelled rectangle - they are still connected
+    correctly, but they are not really "converted".
+    """
+    symbols: int = 0
+    components: int = 0
+    nets: int = 0
+    nodes: int = 0
+    drawn: int = 0
+    described: int = 0
+    fallbacks: List[str] = field(default_factory=list)
+    undescribed: List[str] = field(default_factory=list)
+    #: Which outputs were actually produced, so the report never claims
+    #: "0 converted" for a drawing that was never asked for.
+    has_drawing: bool = False
+    has_text: bool = False
+
+    def summary_lines(self) -> List[str]:
+        """Human-readable report, one item per line."""
+        lines = [
+            f"{self.components} components in the KiCad schematic "
+            f"({self.symbols} symbols placed).",
+            f"{self.nodes} nodes ({self.nets} nets in total).",
+        ]
+        if self.components and self.has_drawing:
+            lines.append(f"{self.drawn} of {self.components} components "
+                         f"converted to CircuiTikZ symbols.")
+        if self.components and self.has_text:
+            lines.append(f"{self.described} of {self.components} components "
+                         f"described in the alt text.")
+        if self.fallbacks:
+            lines.append("Drawn as labelled boxes (no dedicated symbol): "
+                         + ", ".join(self.fallbacks) + ".")
+        if self.undescribed:
+            lines.append("Missing from the alt text: "
+                         + ", ".join(self.undescribed) + ".")
+        return lines
+
+
+@dataclass
 class PipelineResult:
     graph: Optional[CircuitGraph] = None
     alt_text: str = ""
@@ -51,10 +98,46 @@ class PipelineResult:
     output_files: Dict[str, str] = field(default_factory=dict)
     warnings: List[str] = field(default_factory=list)
     errors: List[str] = field(default_factory=list)
+    stats: ConversionStats = field(default_factory=ConversionStats)
 
     @property
     def ok(self) -> bool:
         return not self.errors
+
+
+_REF_TOKEN = re.compile(r"(?<![A-Za-z0-9.]){}(?![A-Za-z0-9])")
+
+
+def summarize(graph: CircuitGraph, tikz_code: str = "", alt_text: str = "",
+              fallbacks: Optional[Set[str]] = None) -> ConversionStats:
+    """Measure how completely *graph* was converted.
+
+    Safe to call with only the graph: the drawing and description counts
+    are simply reported as zero when their output was not generated.
+    """
+    doc = graph.document
+    stats = ConversionStats(
+        symbols=len(doc.symbols) if doc is not None else 0,
+        components=len(graph.components),
+        nets=len(graph.nets),
+        nodes=sum(1 for net in graph.nets
+                  if len(net.pins) >= 2
+                  or (net.kind == NetKind.GROUND and net.pins)),
+    )
+    boxed = set(fallbacks or ())
+    stats.fallbacks = sorted(boxed)
+    if tikz_code:
+        stats.has_drawing = True
+        stats.drawn = len(graph.components) - len(boxed)
+    if alt_text:
+        stats.has_text = True
+        described = [
+            ref for ref in graph.components
+            if re.search(_REF_TOKEN.pattern.format(re.escape(ref)), alt_text)
+        ]
+        stats.described = len(described)
+        stats.undescribed = sorted(set(graph.components) - set(described))
+    return stats
 
 
 def run_pipeline(options: PipelineOptions,
@@ -85,6 +168,7 @@ def run_pipeline(options: PipelineOptions,
     result.graph = graph
     result.warnings.extend(graph.warnings)
 
+    fallbacks: Set[str] = set()
     stem = options.basename or os.path.splitext(
         os.path.basename(options.input_path))[0]
     try:
@@ -109,7 +193,8 @@ def run_pipeline(options: PipelineOptions,
     if options.generate_image:
         say("Generating CircuiTikZ...")
         result.tikz_code = circuitikz.generate(
-            graph, junction_dots=options.junction_dots)
+            graph, junction_dots=options.junction_dots,
+            fallbacks=fallbacks)
         tex_path = os.path.join(options.output_dir, f"{stem}.tex")
         try:
             with open(tex_path, "w", encoding="utf-8") as fh:
@@ -134,6 +219,11 @@ def run_pipeline(options: PipelineOptions,
                     result.output_files[fmt] = out
                 except renderer.RenderError as exc:
                     result.errors.append(f"{fmt.upper()} rendering failed: {exc}")
+
+    result.stats = summarize(graph, result.tikz_code, result.alt_text,
+                             fallbacks)
+    for line in result.stats.summary_lines():
+        say(line)
 
     say("Done.")
     return result
