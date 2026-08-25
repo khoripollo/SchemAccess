@@ -675,7 +675,12 @@ def test_fun4_transistor_families_classified():
     assert comps["Q2"].ctype is ComponentType.TRANSISTOR_PNP
     assert comps["Q3"].ctype is ComponentType.NJFET
     assert comps["T1"].ctype is ComponentType.TRANSFORMER
-    assert comps["B1"].ctype is ComponentType.CONTROLLED_SOURCE
+    # BSOURCE is behavioural, and B1's value is a voltage.
+    assert comps["B1"].ctype is ComponentType.CONTROLLED_VOLTAGE_SOURCE
+    # A symbol that names itself independent is taken at its word, even
+    # though it was copied from a behavioural part whose description
+    # still says "dependent".
+    assert comps["B2"].ctype is ComponentType.CURRENT_SOURCE
 
 
 def test_fun5_real_symbols_not_generic_boxes():
@@ -915,3 +920,49 @@ def test_com2_unmapped_characters_are_reported_not_silently_dropped():
     circuitikz.generate_body(graph)
     assert any("U+2603" in w for w in graph.warnings), (
         f"dropped character was not reported: {graph.warnings}")
+
+
+# ---------------------------------------------------------------------------
+# Sources: a symbol that names itself a source is classified from that name,
+# and controlled sources are split by quantity (voltage vs current).
+# ---------------------------------------------------------------------------
+
+def test_fun4_source_symbols_classified_by_name():
+    """The symbol name is authoritative - it is what the library author
+    deliberately chose - ahead of the reference prefix or an inherited
+    description."""
+    from schemaccess.model import ComponentType as T, classify
+
+    pins, dep = ["N+", "N-"], "Arbitrary behavioral voltage or current " \
+                              "source for simulation only simulation dependent"
+    cases = [
+        # custom symbol copied from BSOURCE but deliberately renamed
+        ("Independent_Current_Source:Independent_Current_Source", "B2", "5A",
+         dep, T.CURRENT_SOURCE),
+        ("MyLib:Independent_Voltage_Source", "B4", "12V", "",
+         T.VOLTAGE_SOURCE),
+        ("MyLib:Dependent_Current_Source", "B5", "1A", "",
+         T.CONTROLLED_CURRENT_SOURCE),
+        # BSOURCE has no quantity in its name, so the value decides
+        ("Simulation_SPICE:BSOURCE", "B1", "5V", dep,
+         T.CONTROLLED_VOLTAGE_SOURCE),
+        ("Simulation_SPICE:BSOURCE", "B3", "5A", dep,
+         T.CONTROLLED_CURRENT_SOURCE),
+    ]
+    for lib_id, ref, value, hints, expected in cases:
+        got = classify(lib_id, ref, value, 2, pins, hints)
+        assert got is expected, f"{lib_id} ({value}) -> {got}, want {expected}"
+
+
+def test_fun5_controlled_sources_use_the_matching_diamond():
+    """A behavioural source draws the diamond for its quantity: cvsource
+    for a voltage, cisource for a current - not cvsource for both."""
+    from schemaccess.circuitikz import _BIPOLE_KEYS
+    from schemaccess.model import ComponentType as T
+
+    assert _BIPOLE_KEYS[T.CONTROLLED_VOLTAGE_SOURCE] == "cvsource"
+    assert _BIPOLE_KEYS[T.CONTROLLED_CURRENT_SOURCE] == "cisource"
+
+    tex = circuitikz.generate(_mixed())
+    assert "cvsource" in tex          # B1, a 5V behavioural source
+    assert "to[I, a={5A}]" in tex     # B2, the custom independent source

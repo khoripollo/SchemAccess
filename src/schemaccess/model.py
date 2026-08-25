@@ -16,6 +16,7 @@ from __future__ import annotations
 
 import enum
 import math
+import re
 from dataclasses import dataclass, field
 from typing import Dict, List, Optional, Sequence, Set, Tuple
 
@@ -231,7 +232,8 @@ class ComponentType(enum.Enum):
     PMOS = "P-channel MOSFET"
     NJFET = "N-channel JFET"
     PJFET = "P-channel JFET"
-    CONTROLLED_SOURCE = "controlled source"
+    CONTROLLED_VOLTAGE_SOURCE = "controlled voltage source"
+    CONTROLLED_CURRENT_SOURCE = "controlled current source"
     OPAMP = "operational amplifier"
     SWITCH = "switch"
     PUSHBUTTON = "push button"
@@ -260,7 +262,8 @@ class ComponentType(enum.Enum):
     def is_source(self) -> bool:
         return self in (ComponentType.VOLTAGE_SOURCE, ComponentType.BATTERY,
                         ComponentType.AC_SOURCE, ComponentType.CURRENT_SOURCE,
-                        ComponentType.CONTROLLED_SOURCE)
+                        ComponentType.CONTROLLED_VOLTAGE_SOURCE,
+                        ComponentType.CONTROLLED_CURRENT_SOURCE)
 
     @property
     def is_transistor(self) -> bool:
@@ -284,7 +287,8 @@ _TWO_TERMINAL = {
     ComponentType.VOLTAGE_SOURCE, ComponentType.CURRENT_SOURCE,
     ComponentType.BATTERY, ComponentType.AC_SOURCE, ComponentType.SWITCH,
     ComponentType.PUSHBUTTON, ComponentType.FUSE, ComponentType.CRYSTAL,
-    ComponentType.CONTROLLED_SOURCE,
+    ComponentType.CONTROLLED_VOLTAGE_SOURCE,
+    ComponentType.CONTROLLED_CURRENT_SOURCE,
 }
 
 
@@ -436,11 +440,10 @@ _LIB_NAME_MAP = [
     ("pjfet", ComponentType.PJFET),
     ("nmos", ComponentType.NMOS),
     ("pmos", ComponentType.PMOS),
-    ("bsource", ComponentType.CONTROLLED_SOURCE),
-    ("vcvs", ComponentType.CONTROLLED_SOURCE),
-    ("vccs", ComponentType.CONTROLLED_SOURCE),
-    ("cccs", ComponentType.CONTROLLED_SOURCE),
-    ("ccvs", ComponentType.CONTROLLED_SOURCE),
+    ("vcvs", ComponentType.CONTROLLED_VOLTAGE_SOURCE),
+    ("ccvs", ComponentType.CONTROLLED_VOLTAGE_SOURCE),
+    ("vccs", ComponentType.CONTROLLED_CURRENT_SOURCE),
+    ("cccs", ComponentType.CONTROLLED_CURRENT_SOURCE),
     ("bc547", ComponentType.TRANSISTOR_NPN),
     ("2n2222", ComponentType.TRANSISTOR_NPN),
     ("2n7002", ComponentType.NMOS),
@@ -517,6 +520,55 @@ _JFET_PREFIXES = ("bf24", "bf245", "bf256", "2n38", "2n39", "2n44", "2n54",
                   "u4", "bfw", "sst")
 
 
+_CONTROLLED_WORDS = ("dependent", "controlled", "behavioral", "behavioural",
+                     "bsource", "vcvs", "vccs", "cccs", "ccvs")
+_VALUE_CURRENT_RE = re.compile(r"^[\d.,]+\s*[munpkKMG]?A\b", re.IGNORECASE)
+_VALUE_VOLTAGE_RE = re.compile(r"^[\d.,]+\s*[munpkKMG]?V\b", re.IGNORECASE)
+
+
+def _source_kind(name: str, value: str,
+                 hints: str) -> Optional["ComponentType"]:
+    """Classify a symbol that calls itself a source.
+
+    The *symbol name* is authoritative, because that is what the person
+    building the library deliberately chose: a part named
+    ``Independent_Current_Source`` is an independent current source even
+    when it was copied from a behavioural symbol whose description still
+    says "dependent".  The value's unit ('5A' / '5V') decides the quantity
+    when the name does not, and only then do the description and keywords
+    get a say.
+    """
+    lowered = name.lower()
+    if "source" not in lowered and not lowered.startswith("bsource"):
+        return None
+
+    if "current" in lowered:
+        current = True
+    elif "voltage" in lowered:
+        current = False
+    elif _VALUE_CURRENT_RE.match(value.strip()):
+        current = True
+    elif _VALUE_VOLTAGE_RE.match(value.strip()):
+        current = False
+    elif "current" in hints.lower() and "voltage" not in hints.lower():
+        current = True
+    else:
+        current = False
+
+    if "independent" in lowered:
+        controlled = False
+    elif any(word in lowered for word in _CONTROLLED_WORDS):
+        controlled = True
+    else:
+        controlled = any(word in hints.lower() for word in _CONTROLLED_WORDS)
+
+    if controlled:
+        return (ComponentType.CONTROLLED_CURRENT_SOURCE if current
+                else ComponentType.CONTROLLED_VOLTAGE_SOURCE)
+    return (ComponentType.CURRENT_SOURCE if current
+            else ComponentType.VOLTAGE_SOURCE)
+
+
 def _fet_kind(name: str, hints: str) -> Optional["ComponentType"]:
     """Resolve a D/G/S transistor into a JFET or MOSFET component type."""
     text = f"{name} {hints}".lower()
@@ -549,6 +601,15 @@ def classify(lib_id: str, reference: str = "", value: str = "",
     raw_name = lib_id.split(":", 1)[-1] if lib_id else ""
     name = raw_name.lower()
     library = lib_id.split(":", 1)[0].lower() if ":" in lib_id else ""
+
+    # A symbol that names itself a source is classified from that name,
+    # ahead of the generic tables: a custom "Independent_Current_Source"
+    # must not fall through to the reference-prefix guess.
+    source = _source_kind(raw_name, value, hints)
+    if source is None and library:
+        source = _source_kind(library, value, hints)
+    if source is not None:
+        return source
 
     # Three-terminal transistors are identified by their pin names, which
     # are standard across libraries; the family comes from name + hints.

@@ -72,8 +72,9 @@ _BIPOLE_KEYS: Dict[ComponentType, str] = {
     ComponentType.FUSE: "fuse",
     ComponentType.CRYSTAL: "generic",
     # KiCad draws behavioural/dependent sources as a diamond, matching
-    # circuitikz's controlled-source shape.
-    ComponentType.CONTROLLED_SOURCE: "cvsource",
+    # circuitikz's controlled-source shapes.
+    ComponentType.CONTROLLED_VOLTAGE_SOURCE: "cvsource",
+    ComponentType.CONTROLLED_CURRENT_SOURCE: "cisource",
 }
 
 _DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
