@@ -34,10 +34,15 @@ gates — instead of its pixels.
 - **True electrical connectivity**: nets are built with KiCad semantics
   (junctions, labels, wire-interior connections; crossing wires without a
   junction are *not* connected).
-- **Three alt-text detail levels**: `short` (counts and a component list),
-  `standard` (parallel groups, series chains, connections, source polarity)
-  and `detailed` (everything, plus detected structures, per-component pin
-  listings and warnings).
+- **Detailed descriptions by default**: the GUI always writes the fullest
+  description. The CLI additionally offers `short` (counts and a component
+  list) and `standard` (parallel groups, series chains, connections, source
+  polarity) for scripting.
+- **Conversion counts**: every run reports how many components and nodes
+  were found and how many were converted and described, naming anything that
+  fell short — so you never have to guess whether a symbol made it through.
+- **Fast**: a 200-component schematic translates in about 160 ms on a
+  typical laptop, against a 5-second requirement.
 - **Structure detection**: series chains, parallel groups, voltage dividers,
   first-order RC/RL filters (low- and high-pass), Wheatstone bridges,
   inverting / non-inverting / follower op-amp configurations, logic-gate
@@ -154,13 +159,25 @@ The main window walkthrough, top to bottom:
 5. **Progress** — a read-only log of pipeline stages, warnings, errors and
    the paths of produced files. Every line is mirrored to the status bar so
    screen readers announce it.
-6. **Results** — a **Conversion summary** (Alt+V) giving the component and
-   node counts found in the schematic and how many of them were converted to
-   CircuiTikZ symbols and described in the alt text, naming anything that
-   was not; the generated alt text in a read-only, screen-reader friendly
-   text area; a scaled preview of the PNG (when one was rendered), whose
-   accessible description *is* the alt text; and an **Open Output Folder**
-   button (Alt+O).
+6. **Results** — a **Conversion summary** (Alt+V), the generated alt text in
+   a read-only, screen-reader friendly text area, a scaled preview of the PNG
+   (when one was rendered) whose accessible description *is* the alt text,
+   and an **Open Output Folder** button (Alt+O).
+
+The conversion summary looks like this:
+
+```
+25 components in the KiCad schematic (28 symbols placed).
+11 nodes (46 nets in total).
+25 of 25 components converted to CircuiTikZ symbols.
+25 of 25 components described in the alt text.
+Converted in 161 ms (read 141 ms, drawing 10 ms, description 10 ms).
+LaTeX rendering took 7119 ms.
+```
+
+Anything that did not convert is named explicitly, so a symbol never fails
+silently. Timings cover the translation itself; running LaTeX is an external
+tool and is reported separately.
 
 The GUI always writes the **detailed** description — there is no reason to
 hand a blind reader a shorter one. The CLI keeps `-d/--detail` for scripting
@@ -206,6 +223,65 @@ parses the schematic and checks its connectivity — a quick validation pass.
 
 Generated files are named after the input file: `<stem>_alt_text.txt`,
 `<stem>.tex`, `<stem>.pdf`, `<stem>.svg`, `<stem>.png`.
+
+## Supported components
+
+These KiCad symbols convert to a real CircuiTikZ symbol. Anything else is
+drawn as a labelled box with its pins in the correct places — still wired
+correctly, and still fully described in the alt text — and is reported in the
+conversion summary so you know it happened.
+
+| Component | CircuiTikZ element |
+| --- | --- |
+| Resistor | `to[R]` |
+| Potentiometer | `to[pR]` (+ wiper lead) |
+| Capacitor | `to[C]` |
+| Polarized capacitor | `to[cC]` |
+| Inductor | `to[L]` |
+| Diode | `to[D]` |
+| LED | `to[leD]` |
+| Zener diode | `to[zD]` |
+| Voltage source (DC) | `to[V]` |
+| AC / sinusoidal source | `to[sV]` |
+| Current source | `to[I]` |
+| Battery | `to[battery1]` |
+| Controlled voltage source | `to[cvsource]` |
+| Controlled current source | `to[cisource]` |
+| Switch | `to[nos]` |
+| Push button | `to[nopb]` |
+| Fuse | `to[fuse]` |
+| Crystal | `to[generic]` |
+| NPN transistor | `node[npn]` |
+| PNP transistor | `node[pnp]` |
+| N-channel MOSFET | `node[nmos]` |
+| P-channel MOSFET | `node[pmos]` |
+| N-channel JFET | drawn from KiCad's own geometry |
+| P-channel JFET | drawn from KiCad's own geometry |
+| Operational amplifier | `node[op amp]` |
+| Transformer (2 windings) | `node[transformer core]` |
+| AND / OR / NOT / NAND / NOR / XOR / XNOR / buffer | `node[... port]` |
+| Ground and power rails | `node[ground]`, `node[vcc]`, `node[vee]` |
+
+How a symbol is recognised, in order:
+
+1. **Pin-name signature** — `D`/`G`/`S` means a FET, `B`/`C`/`E` a bipolar.
+   The family (JFET vs MOSFET, NPN vs PNP) comes from the symbol's
+   description and keywords, plus a small JFET part-number list, because
+   KiCad keeps both in one library with identical pins.
+2. **Symbol name** — anything calling itself a source is classified from its
+   own name (`Independent_Current_Source`, `Dependent_Voltage_Source`), then
+   from its value's unit (`5A` vs `5V`).
+3. **Library name** — `Device:R_Small`, `Amplifier_Operational:*`, and so on.
+4. **Reference prefix** — `R`, `C`, `L`, `D`, `Q`, `U`, `T`/`TR`, … as a
+   last resort.
+
+The **drawn outline follows your schematic**: a source you drew as a diamond
+stays a diamond, even when its name says otherwise. Polarity and
+winding-phase dots in the symbol artwork are reproduced too.
+
+Custom symbols work as long as their pins are named conventionally — see
+[docs/component_mapping.md](docs/component_mapping.md) for the full tables
+and how to add a new mapping.
 
 ## Example output
 
@@ -305,6 +381,42 @@ a current KiCad first), or the file is truncated/corrupted.
 pin and no no-connect marker — usually a wire that stops just short of a pin
 in the original schematic. The output is still produced; fix the schematic in
 KiCad to silence the warning.
+
+## Tests
+
+```
+python -m pytest                        # everything (~325 tests)
+python -m pytest -v                     # one line per test, pass/fail
+python -m pytest -m "not slow"          # skip the LaTeX compilation tests
+```
+
+Two reports print measured numbers rather than just passing. Use `-s`, which
+stops pytest from swallowing their output:
+
+```
+python -m pytest tests/test_parser.py -k report -s
+```
+
+```
+mixed_symbols.kicad_sch
+    25 components in KiCad schematic, 11 nodes (46 nets)
+    OK   25 converted to CircuiTikZ symbols
+    OK   25 described in the alt text
+    OK   converted in 12.4 ms (read 11.0, drawing 0.8, description 0.6)
+```
+
+Every fixture is listed with `OK`/`FAIL` per line, and any component that
+did not convert or was left out of the description is named. The test fails
+if anything is missing or over the 5-second budget.
+
+```
+python -m pytest tests/test_performance.py -s
+```
+
+```
+PER-1: 200 components translated in 166.3 ms (read 146.4 ms,
+       drawing 9.7 ms, description 10.1 ms); budget 5000 ms
+```
 
 ## Documentation
 

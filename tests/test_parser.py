@@ -89,28 +89,54 @@ def test_fun1_rc_divider_net_membership(load) -> None:
 # description, so it is a real check and not just a printout.
 # ---------------------------------------------------------------------------
 
-def test_fun1_conversion_report(manifest) -> None:
-    """Report, per schematic, what went in and what came out."""
-    from schemaccess import alttext, circuitikz
+#: PER-1 budget for translating a schematic, in milliseconds.  Only the
+#: translation counts; running LaTeX is an external tool and is timed
+#: separately by the renderer tests.
+_CONVERT_BUDGET_MS = 5000.0
+
+
+def test_fun1_conversion_report(fixtures_dir, manifest) -> None:
+    """Report, per schematic, what went in, what came out, and how long."""
+    import time
+
+    from schemaccess import alttext, circuitikz, kicad_parser, netbuilder
     from schemaccess.pipeline import summarize
 
     problems = {}
+    slow = {}
     print()  # start the report on its own line
 
     for name in VALID_FIXTURES:
-        graph = load_graph(name)
+        # Time the whole translation the way a user would experience it:
+        # read the file, build the graph, write both outputs.
+        started = time.perf_counter()
+        doc = kicad_parser.parse_file(str(fixtures_dir / name))
+        graph = netbuilder.build_graph(doc)
+        read_ms = (time.perf_counter() - started) * 1000.0
+
         fallbacks: set = set()
+        started = time.perf_counter()
         tikz = circuitikz.generate(graph, fallbacks=fallbacks)
+        draw_ms = (time.perf_counter() - started) * 1000.0
+
+        started = time.perf_counter()
         text = alttext.generate(graph, "detailed")
+        text_ms = (time.perf_counter() - started) * 1000.0
+
         stats = summarize(graph, tikz, text, fallbacks)
+        total_ms = read_ms + draw_ms + text_ms
 
         drew = "OK  " if stats.drawn == stats.components else "FAIL"
         told = "OK  " if stats.described == stats.components else "FAIL"
+        fast = "OK  " if total_ms <= _CONVERT_BUDGET_MS else "FAIL"
         print(f"{name}")
         print(f"    {stats.components} components in KiCad schematic, "
               f"{stats.nodes} nodes ({stats.nets} nets)")
         print(f"    {drew} {stats.drawn} converted to CircuiTikZ symbols")
         print(f"    {told} {stats.described} described in the alt text")
+        print(f"    {fast} converted in {total_ms:.1f} ms "
+              f"(read {read_ms:.1f}, drawing {draw_ms:.1f}, "
+              f"description {text_ms:.1f})")
         if stats.fallbacks:
             print(f"         not converted: {', '.join(stats.fallbacks)}")
         if stats.undescribed:
@@ -121,5 +147,9 @@ def test_fun1_conversion_report(manifest) -> None:
                 "not converted": stats.fallbacks,
                 "not described": stats.undescribed,
             }
+        if total_ms > _CONVERT_BUDGET_MS:
+            slow[name] = round(total_ms, 1)
 
     assert not problems, f"components that did not convert: {problems}"
+    assert not slow, (
+        f"schematics over the {_CONVERT_BUDGET_MS:.0f} ms budget: {slow}")
