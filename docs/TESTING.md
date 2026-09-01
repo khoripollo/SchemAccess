@@ -22,8 +22,11 @@ external tools installed.
 
 ## Test data
 
-The fixture corpus lives in `tests/fixtures/` — thirteen KiCad 8 schematics
-(twelve hand-built plus one generated) and `manifest.json`, which records the expected component count,
+The fixture corpus lives in `tests/fixtures/` — seventeen KiCad schematics
+(fifteen valid ones listed in the manifest, plus `malformed.kicad_sch` and
+`not_a_schematic.kicad_sch` for the error paths). Most are hand-built;
+`big_200.kicad_sch` is produced by `gen_big.py`, and a few are real KiCad 10
+files kept as regressions. `manifest.json` records the expected component count,
 net count, ground presence and power-symbol count for every valid fixture
 exactly as `netbuilder.build_graph` reports them. See
 `tests/fixtures/README.md` for the full catalogue (reference RC divider,
