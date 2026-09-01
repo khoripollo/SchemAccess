@@ -129,6 +129,7 @@ schemaccess INPUT.kicad_sch [options]
 | `--no-alt-text` | Skip the natural-language alt text |
 | `--no-image` | Skip CircuiTikZ/LaTeX and rendered images |
 | `-f`, `--format {pdf,svg,png,all}` | Image format(s) to render (default: `all`) |
+| `--check` | Report what the schematic converts to **without writing any files**; exits 1 if a component did not convert or was left out of the description |
 | `--no-junction-dots` | Omit the connection dots drawn where wires meet (included by default, as KiCad draws them) |
 | `--print-alt` | Also print the generated alt text to stdout |
 | `-q`, `--quiet` | Suppress progress and `wrote:` lines (warnings/errors still go to stderr) |
@@ -336,6 +337,26 @@ mixed_symbols.kicad_sch
 Every fixture is listed with `OK`/`FAIL` per line, and any component that
 did not convert or was left out of the description is named. The test fails
 if anything is missing or over the 5-second budget.
+
+**These run against the frozen schematics in `tests/fixtures/`, not against
+whatever file you are working on.** To get the same report for your own
+schematic, use `--check`, which converts in memory and writes nothing:
+
+```
+python -m schemaccess.cli path\to\your.kicad_sch --check
+```
+
+```
+20 components in the KiCad schematic (21 symbols placed).
+9 nodes (30 nets in total).
+20 of 20 components converted to CircuiTikZ symbols.
+20 of 20 components described in the alt text.
+Converted in 64 ms (read 62 ms, drawing 2 ms, description 1 ms).
+All components converted.
+```
+
+It exits 1 and names the offenders if anything fails to convert, so it works
+in a build script as well as by hand.
 
 ```
 python -m pytest tests/test_performance.py -s

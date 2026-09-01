@@ -94,6 +94,13 @@ def build_parser() -> argparse.ArgumentParser:
         help="alt-text detail level (default: %(default)s)",
     )
     parser.add_argument(
+        "--check",
+        action="store_true",
+        help="report what this schematic converts to without writing any "
+             "files; exits 1 if a component did not convert or was left "
+             "out of the description",
+    )
+    parser.add_argument(
         "--no-junction-dots",
         action="store_true",
         help="omit the connection dots drawn where wires meet "
@@ -145,14 +152,20 @@ def main(argv: list[str] | None = None) -> int:
     options = pipeline.PipelineOptions(
         input_path=args.input,
         output_dir=output_dir,
-        generate_alt_text=not args.no_alt_text,
-        generate_image=not args.no_image,
+        # --check converts both outputs in memory so it can report on
+        # them, regardless of the other switches.
+        generate_alt_text=args.check or not args.no_alt_text,
+        generate_image=args.check or not args.no_image,
         export_format=args.format,
-        detail_level=args.detail,
+        detail_level="detailed" if args.check else args.detail,
         junction_dots=not args.no_junction_dots,
+        dry_run=args.check,
     )
 
-    if args.no_alt_text and args.no_image:
+    if args.check and (args.no_alt_text or args.no_image):
+        print("warning: --check reports on both outputs; --no-alt-text and "
+              "--no-image are ignored.", file=sys.stderr)
+    elif args.no_alt_text and args.no_image:
         print("warning: both alt text and image generation are disabled; "
               "the schematic will only be parsed and checked.",
               file=sys.stderr)
@@ -172,6 +185,17 @@ def main(argv: list[str] | None = None) -> int:
         for error in result.errors:
             print(f"error: {error}", file=sys.stderr)
         return 1
+
+    if args.check:
+        stats = result.stats
+        missed = stats.fallbacks or stats.undescribed
+        if missed:
+            print("error: some components did not convert cleanly.",
+                  file=sys.stderr)
+            return 1
+        if not args.quiet:
+            print("All components converted.")
+        return 0
 
     if not args.quiet:
         for path in _ordered_output_files(result.output_files):

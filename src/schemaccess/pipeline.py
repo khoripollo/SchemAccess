@@ -43,6 +43,10 @@ class PipelineOptions:
     detail_level: str = "standard"      # short | standard | detailed
     basename: str = ""                  # default: input file stem
     junction_dots: bool = True          # draw KiCad connection dots
+    #: Convert in memory and report, writing nothing.  Used by the CLI's
+    #: --check mode to answer "what would convert?" without producing
+    #: files or needing a LaTeX toolchain.
+    dry_run: bool = False
 
 
 @dataclass
@@ -198,11 +202,12 @@ def run_pipeline(options: PipelineOptions,
     draw_ms = text_ms = render_ms = 0.0
     stem = options.basename or os.path.splitext(
         os.path.basename(options.input_path))[0]
-    try:
-        os.makedirs(options.output_dir, exist_ok=True)
-    except OSError as exc:
-        result.errors.append(f"Cannot create output folder: {exc}")
-        return result
+    if not options.dry_run:
+        try:
+            os.makedirs(options.output_dir, exist_ok=True)
+        except OSError as exc:
+            result.errors.append(f"Cannot create output folder: {exc}")
+            return result
 
     # ---- Alt text --------------------------------------------------------
     if options.generate_alt_text:
@@ -210,13 +215,14 @@ def run_pipeline(options: PipelineOptions,
         started = time.perf_counter()
         result.alt_text = alttext.generate(graph, options.detail_level)
         text_ms = (time.perf_counter() - started) * 1000.0
-        path = os.path.join(options.output_dir, f"{stem}_alt_text.txt")
-        try:
-            with open(path, "w", encoding="utf-8") as fh:
-                fh.write(result.alt_text + "\n")
-            result.output_files["alt_text"] = path
-        except OSError as exc:
-            result.errors.append(f"Could not write alt text file: {exc}")
+        if not options.dry_run:
+            path = os.path.join(options.output_dir, f"{stem}_alt_text.txt")
+            try:
+                with open(path, "w", encoding="utf-8") as fh:
+                    fh.write(result.alt_text + "\n")
+                result.output_files["alt_text"] = path
+            except OSError as exc:
+                result.errors.append(f"Could not write alt text file: {exc}")
 
     # ---- CircuiTikZ + rendering -----------------------------------------
     if options.generate_image:
@@ -226,32 +232,40 @@ def run_pipeline(options: PipelineOptions,
             graph, junction_dots=options.junction_dots,
             fallbacks=fallbacks)
         draw_ms = (time.perf_counter() - started) * 1000.0
-        tex_path = os.path.join(options.output_dir, f"{stem}.tex")
-        try:
-            with open(tex_path, "w", encoding="utf-8") as fh:
-                fh.write(result.tikz_code)
-            result.output_files["tex"] = tex_path
-        except OSError as exc:
-            result.errors.append(f"Could not write .tex file: {exc}")
-            return result
-
-        formats = (["pdf", "svg", "png"] if options.export_format == "all"
-                   else [options.export_format])
-        render = renderer.Renderer()
-        if not render.available():
-            result.warnings.append(
-                "No LaTeX toolchain found - wrote the .tex file only. "
-                + render.install_hint())
+        if options.dry_run:
+            formats = []            # nothing written, nothing to render
         else:
-            started = time.perf_counter()
-            for fmt in formats:
-                say(f"Rendering {fmt.upper()}...")
-                try:
-                    out = render.render(tex_path, fmt, options.output_dir)
-                    result.output_files[fmt] = out
-                except renderer.RenderError as exc:
-                    result.errors.append(f"{fmt.upper()} rendering failed: {exc}")
-            render_ms = (time.perf_counter() - started) * 1000.0
+            tex_path = os.path.join(options.output_dir, f"{stem}.tex")
+            try:
+                with open(tex_path, "w", encoding="utf-8") as fh:
+                    fh.write(result.tikz_code)
+                result.output_files["tex"] = tex_path
+            except OSError as exc:
+                result.errors.append(f"Could not write .tex file: {exc}")
+                return result
+
+            formats = (["pdf", "svg", "png"]
+                       if options.export_format == "all"
+                       else [options.export_format])
+
+        if formats:
+            render = renderer.Renderer()
+            if not render.available():
+                result.warnings.append(
+                    "No LaTeX toolchain found - wrote the .tex file only. "
+                    + render.install_hint())
+            else:
+                started = time.perf_counter()
+                for fmt in formats:
+                    say(f"Rendering {fmt.upper()}...")
+                    try:
+                        out = render.render(tex_path, fmt,
+                                            options.output_dir)
+                        result.output_files[fmt] = out
+                    except renderer.RenderError as exc:
+                        result.errors.append(
+                            f"{fmt.upper()} rendering failed: {exc}")
+                render_ms = (time.perf_counter() - started) * 1000.0
 
     result.stats = summarize(graph, result.tikz_code, result.alt_text,
                              fallbacks)

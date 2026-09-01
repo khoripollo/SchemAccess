@@ -57,3 +57,35 @@ def test_cli_missing_input_exits_two(capsys) -> None:
     with pytest.raises(SystemExit) as excinfo:
         cli.main(["no_such_file.kicad_sch"])
     assert excinfo.value.code == 2
+
+
+def test_cli_check_reports_without_writing_files(tmp_path, capsys,
+                                                 fixtures_dir) -> None:
+    """--check converts in memory and reports; it must not write output."""
+    out = tmp_path / "should_stay_empty"
+    code = cli.main([str(fixtures_dir / "rc_divider.kicad_sch"),
+                     "-o", str(out), "--check"])
+    printed = capsys.readouterr().out
+
+    assert code == 0
+    assert not out.exists(), "--check must not create the output folder"
+    assert "4 components in the KiCad schematic" in printed
+    assert "4 of 4 components converted to CircuiTikZ symbols." in printed
+    assert "4 of 4 components described in the alt text." in printed
+    assert "Converted in" in printed and "ms" in printed
+    assert "All components converted." in printed
+
+
+def test_cli_check_reports_both_outputs_despite_no_flags(tmp_path, capsys,
+                                                         fixtures_dir) -> None:
+    """--check always reports on the drawing and the description, so the
+    counts are never silently missing."""
+    code = cli.main([str(fixtures_dir / "rc_divider.kicad_sch"),
+                     "-o", str(tmp_path / "nope"), "--check",
+                     "--no-image", "--no-alt-text"])
+    captured = capsys.readouterr()
+
+    assert code == 0
+    assert "converted to CircuiTikZ symbols." in captured.out
+    assert "described in the alt text." in captured.out
+    assert "ignored" in captured.err, "the conflict should be explained"
