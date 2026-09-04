@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 850" width="1200" height="850"
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1400 1000" width="1400" height="1000"
      font-family="'Segoe UI',Helvetica,Arial,sans-serif">
   <defs>
     <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
@@ -7,209 +7,266 @@
     </marker>
   </defs>
 
-  <rect width="1200" height="850" fill="#ffffff"/>
+  <rect width="1400" height="1000" fill="#ffffff"/>
 
   <!-- Title -->
-  <text x="600" y="44" text-anchor="middle" font-size="24" font-weight="600"
-        fill="#111827">SchemAccess - module architecture</text>
-  <text x="600" y="70" text-anchor="middle" font-size="14" fill="#6b7280">
-    One KiCad schematic in; an accessible description and a CircuiTikZ drawing out
+  <text x="700" y="44" text-anchor="middle" font-size="25" font-weight="600"
+        fill="#111827">SchemAccess - how the modules fit together</text>
+  <text x="700" y="70" text-anchor="middle" font-size="14" fill="#6b7280">
+    One KiCad schematic goes in; a spoken description and a redrawn circuit come out
   </text>
 
-  <!-- ================= shared data model rail ================= -->
-  <rect x="30" y="190" width="170" height="570" rx="10" fill="#f8fafc"
+  <!-- ============================================================
+       LEFT RAIL - the shared data model
+       ============================================================ -->
+  <rect x="30" y="188" width="270" height="784" rx="10" fill="#f8fafc"
         stroke="#cbd5e1" stroke-dasharray="5 4"/>
-  <text x="115" y="220" text-anchor="middle" font-size="15" font-weight="600"
+  <text x="165" y="218" text-anchor="middle" font-size="16" font-weight="600"
         fill="#334155">model.py</text>
-  <text x="115" y="238" text-anchor="middle" font-size="11" fill="#64748b">shared data model</text>
-  <line x1="46" y1="252" x2="184" y2="252" stroke="#e2e8f0"/>
+  <text x="165" y="237" text-anchor="middle" font-size="11" fill="#64748b"
+        font-style="italic">the shared vocabulary</text>
 
-  <text x="46" y="278" font-size="11.5" font-weight="600" fill="#475569">Document layer</text>
-  <text x="46" y="296" font-size="11" fill="#64748b">SchematicDocument</text>
-  <text x="52" y="313" font-size="11" fill="#64748b">LibSymbol / PinDef</text>
-  <text x="52" y="330" font-size="11" fill="#64748b">SymbolInstance</text>
-  <text x="52" y="347" font-size="11" fill="#64748b">Wire / Junction</text>
-  <text x="52" y="364" font-size="11" fill="#64748b">Label / SheetRef</text>
-  <text x="46" y="384" font-size="10.5" fill="#94a3b8">geometry, Y axis down</text>
+  <text x="48" y="266" font-size="11.5" fill="#475569">Defines the classes that every</text>
+  <text x="48" y="283" font-size="11.5" fill="#475569">other module passes around, so</text>
+  <text x="48" y="300" font-size="11.5" fill="#475569">they all describe a circuit the</text>
+  <text x="48" y="317" font-size="11.5" fill="#475569">same way. No logic of its own.</text>
 
-  <line x1="46" y1="402" x2="184" y2="402" stroke="#e2e8f0"/>
+  <line x1="48" y1="338" x2="282" y2="338" stroke="#e2e8f0"/>
 
-  <text x="46" y="428" font-size="11.5" font-weight="600" fill="#475569">Circuit layer</text>
-  <text x="46" y="446" font-size="11" fill="#64748b">CircuitGraph</text>
-  <text x="52" y="463" font-size="11" fill="#64748b">Component</text>
-  <text x="52" y="480" font-size="11" fill="#64748b">PinConnection</text>
-  <text x="52" y="497" font-size="11" fill="#64748b">Net</text>
-  <text x="46" y="517" font-size="10.5" fill="#94a3b8">electrical graph</text>
+  <text x="48" y="364" font-size="12.5" font-weight="600" fill="#1e293b">Document layer</text>
+  <text x="48" y="382" font-size="11" fill="#64748b" font-style="italic">
+    what the file literally says</text>
+  <text x="48" y="406" font-size="11.5" fill="#475569">SchematicDocument</text>
+  <text x="48" y="424" font-size="11.5" fill="#475569">SymbolInstance, LibSymbol</text>
+  <text x="48" y="442" font-size="11.5" fill="#475569">Wire, Junction, Label</text>
+  <text x="48" y="466" font-size="11" fill="#94a3b8">Keeps KiCad's exact positions</text>
+  <text x="48" y="482" font-size="11" fill="#94a3b8">so the redraw can match it.</text>
 
-  <line x1="46" y1="535" x2="184" y2="535" stroke="#e2e8f0"/>
+  <line x1="48" y1="504" x2="282" y2="504" stroke="#e2e8f0"/>
 
-  <text x="46" y="561" font-size="11.5" font-weight="600" fill="#475569">Key helpers</text>
-  <text x="46" y="580" font-size="11" fill="#64748b">snap()</text>
-  <text x="52" y="596" font-size="10.5" fill="#94a3b8">0.0001 mm keys</text>
-  <text x="46" y="617" font-size="11" fill="#64748b">lib_point()</text>
-  <text x="52" y="633" font-size="10.5" fill="#94a3b8">rotate, flip Y,</text>
-  <text x="52" y="648" font-size="10.5" fill="#94a3b8">then mirror</text>
-  <text x="46" y="669" font-size="11" fill="#64748b">classify()</text>
-  <text x="52" y="685" font-size="10.5" fill="#94a3b8">part -&gt; ComponentType</text>
+  <text x="48" y="530" font-size="12.5" font-weight="600" fill="#1e293b">Circuit layer</text>
+  <text x="48" y="548" font-size="11" fill="#64748b" font-style="italic">
+    what it means electrically</text>
+  <text x="48" y="572" font-size="11.5" fill="#475569">CircuitGraph</text>
+  <text x="48" y="590" font-size="11.5" fill="#475569">Component, PinConnection</text>
+  <text x="48" y="608" font-size="11.5" fill="#475569">Net</text>
+  <text x="48" y="632" font-size="11" fill="#94a3b8">Which parts exist and which</text>
+  <text x="48" y="648" font-size="11" fill="#94a3b8">nodes their pins sit on.</text>
 
-  <text x="115" y="726" text-anchor="middle" font-size="10.5" fill="#94a3b8">every module</text>
-  <text x="115" y="741" text-anchor="middle" font-size="10.5" fill="#94a3b8">speaks these types</text>
+  <line x1="48" y1="670" x2="282" y2="670" stroke="#e2e8f0"/>
 
-  <!-- ================= orchestration rail ================= -->
-  <rect x="1000" y="190" width="170" height="570" rx="10" fill="#f8fafc"
+  <text x="48" y="696" font-size="12.5" font-weight="600" fill="#1e293b">Two tricky details</text>
+  <text x="48" y="720" font-size="11.5" fill="#475569">snap()</text>
+  <text x="48" y="737" font-size="11" fill="#94a3b8">Rounds every coordinate before</text>
+  <text x="48" y="753" font-size="11" fill="#94a3b8">comparing it, so tiny rounding</text>
+  <text x="48" y="769" font-size="11" fill="#94a3b8">errors can't split a wire in two.</text>
+
+  <text x="48" y="797" font-size="11.5" fill="#475569">lib_point()</text>
+  <text x="48" y="814" font-size="11" fill="#94a3b8">A symbol's pins are stored</text>
+  <text x="48" y="830" font-size="11" fill="#94a3b8">relative to the symbol. This</text>
+  <text x="48" y="846" font-size="11" fill="#94a3b8">rotates, flips and moves them</text>
+  <text x="48" y="862" font-size="11" fill="#94a3b8">to where they land on the page.</text>
+
+  <text x="48" y="890" font-size="11.5" fill="#475569">classify()</text>
+  <text x="48" y="907" font-size="11" fill="#94a3b8">Decides what a part actually is</text>
+  <text x="48" y="923" font-size="11" fill="#94a3b8">- resistor, NPN, op-amp - from</text>
+  <text x="48" y="939" font-size="11" fill="#94a3b8">its pins, name and reference.</text>
+
+  <!-- ============================================================
+       RIGHT RAIL - front ends
+       ============================================================ -->
+  <rect x="1100" y="188" width="270" height="784" rx="10" fill="#f8fafc"
         stroke="#cbd5e1" stroke-dasharray="5 4"/>
-  <text x="1085" y="220" text-anchor="middle" font-size="15" font-weight="600"
-        fill="#334155">Front ends</text>
-  <text x="1085" y="238" text-anchor="middle" font-size="11" fill="#64748b">drive the pipeline</text>
-  <line x1="1016" y1="252" x2="1154" y2="252" stroke="#e2e8f0"/>
+  <text x="1235" y="218" text-anchor="middle" font-size="16" font-weight="600"
+        fill="#334155">How you run it</text>
+  <text x="1235" y="237" text-anchor="middle" font-size="11" fill="#64748b"
+        font-style="italic">these drive everything else</text>
 
-  <text x="1016" y="280" font-size="12" font-weight="600" fill="#475569">pipeline.py</text>
-  <text x="1016" y="298" font-size="11" fill="#64748b">run_pipeline()</text>
-  <text x="1016" y="315" font-size="11" fill="#64748b">PipelineOptions</text>
-  <text x="1016" y="332" font-size="11" fill="#64748b">ConversionStats</text>
-  <text x="1016" y="349" font-size="10.5" fill="#94a3b8">counts + per-stage</text>
-  <text x="1016" y="364" font-size="10.5" fill="#94a3b8">timings in ms</text>
+  <line x1="1118" y1="256" x2="1352" y2="256" stroke="#e2e8f0"/>
 
-  <line x1="1016" y1="382" x2="1154" y2="382" stroke="#e2e8f0"/>
+  <text x="1118" y="282" font-size="12.5" font-weight="600" fill="#1e293b">pipeline.py</text>
+  <text x="1118" y="303" font-size="11.5" fill="#475569">Runs the stages below in</text>
+  <text x="1118" y="320" font-size="11.5" fill="#475569">order, counts how many</text>
+  <text x="1118" y="337" font-size="11.5" fill="#475569">parts converted, and times</text>
+  <text x="1118" y="354" font-size="11.5" fill="#475569">each step in milliseconds.</text>
 
-  <text x="1016" y="410" font-size="12" font-weight="600" fill="#475569">cli.py</text>
-  <text x="1016" y="428" font-size="11" fill="#64748b">-o, -f, --check</text>
-  <text x="1016" y="445" font-size="11" fill="#64748b">--no-junction-dots</text>
-  <text x="1016" y="462" font-size="10.5" fill="#94a3b8">exit 1 if anything</text>
-  <text x="1016" y="477" font-size="10.5" fill="#94a3b8">fails to convert</text>
+  <line x1="1118" y1="376" x2="1352" y2="376" stroke="#e2e8f0"/>
 
-  <line x1="1016" y1="495" x2="1154" y2="495" stroke="#e2e8f0"/>
+  <text x="1118" y="402" font-size="12.5" font-weight="600" fill="#1e293b">cli.py</text>
+  <text x="1118" y="423" font-size="11.5" fill="#475569">The command-line version.</text>
+  <text x="1118" y="440" font-size="11.5" fill="#475569">One command converts a</text>
+  <text x="1118" y="457" font-size="11.5" fill="#475569">file. --check reports what</text>
+  <text x="1118" y="474" font-size="11.5" fill="#475569">would happen and writes</text>
+  <text x="1118" y="491" font-size="11.5" fill="#475569">nothing to disk.</text>
 
-  <text x="1016" y="523" font-size="12" font-weight="600" fill="#475569">gui/</text>
-  <text x="1016" y="541" font-size="11" fill="#64748b">main_window.py</text>
-  <text x="1016" y="558" font-size="11" fill="#64748b">PySide6</text>
-  <text x="1016" y="575" font-size="10.5" fill="#94a3b8">QThread worker so</text>
-  <text x="1016" y="590" font-size="10.5" fill="#94a3b8">the UI stays live</text>
-  <text x="1016" y="610" font-size="10.5" fill="#94a3b8">drag and drop,</text>
-  <text x="1016" y="625" font-size="10.5" fill="#94a3b8">accessible widgets,</text>
-  <text x="1016" y="640" font-size="10.5" fill="#94a3b8">conversion summary</text>
+  <line x1="1118" y1="513" x2="1352" y2="513" stroke="#e2e8f0"/>
 
-  <line x1="1016" y1="660" x2="1154" y2="660" stroke="#e2e8f0"/>
-  <text x="1016" y="686" font-size="12" font-weight="600" fill="#475569">tests/</text>
-  <text x="1016" y="704" font-size="11" fill="#64748b">330 tests</text>
-  <text x="1016" y="721" font-size="10.5" fill="#94a3b8">three-way audit</text>
-  <text x="1016" y="736" font-size="10.5" fill="#94a3b8">cross-checks all</text>
-  <text x="1016" y="751" font-size="10.5" fill="#94a3b8">three artefacts</text>
+  <text x="1118" y="539" font-size="12.5" font-weight="600" fill="#1e293b">gui/main_window.py</text>
+  <text x="1118" y="560" font-size="11.5" fill="#475569">The desktop window. Drag a</text>
+  <text x="1118" y="577" font-size="11.5" fill="#475569">schematic in, tick which</text>
+  <text x="1118" y="594" font-size="11.5" fill="#475569">outputs you want, press</text>
+  <text x="1118" y="611" font-size="11.5" fill="#475569">Generate. The work runs on</text>
+  <text x="1118" y="628" font-size="11.5" fill="#475569">a background thread so the</text>
+  <text x="1118" y="645" font-size="11.5" fill="#475569">window never freezes.</text>
 
-  <!-- ================= input ================= -->
-  <rect x="450" y="100" width="300" height="54" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="600" y="124" text-anchor="middle" font-size="16" font-weight="600"
-        fill="#111827">.kicad_sch</text>
-  <text x="600" y="143" text-anchor="middle" font-size="11.5" fill="#6b7280">
-    native KiCad 6-10 schematic file</text>
+  <line x1="1118" y1="667" x2="1352" y2="667" stroke="#e2e8f0"/>
 
-  <line x1="600" y1="154" x2="600" y2="184" stroke="#6b7280" stroke-width="1.6"
+  <text x="1118" y="693" font-size="12.5" font-weight="600" fill="#1e293b">tests/</text>
+  <text x="1118" y="714" font-size="11.5" fill="#475569">330 automated tests.</text>
+  <text x="1118" y="738" font-size="11.5" fill="#475569">The audit test counts the</text>
+  <text x="1118" y="755" font-size="11.5" fill="#475569">components, nodes and</text>
+  <text x="1118" y="772" font-size="11.5" fill="#475569">connections in all three</text>
+  <text x="1118" y="789" font-size="11.5" fill="#475569">files - the schematic, the</text>
+  <text x="1118" y="806" font-size="11.5" fill="#475569">drawing and the written</text>
+  <text x="1118" y="823" font-size="11.5" fill="#475569">description - and fails if</text>
+  <text x="1118" y="840" font-size="11.5" fill="#475569">the three disagree.</text>
+  <text x="1118" y="864" font-size="11" fill="#94a3b8">That is how we know nothing</text>
+  <text x="1118" y="880" font-size="11" fill="#94a3b8">went missing in between.</text>
+
+  <!-- ============================================================
+       INPUT
+       ============================================================ -->
+  <rect x="550" y="92" width="300" height="56" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="700" y="117" text-anchor="middle" font-size="16" font-weight="600"
+        fill="#111827">your .kicad_sch file</text>
+  <text x="700" y="136" text-anchor="middle" font-size="11.5" fill="#6b7280">
+    saved straight out of KiCad</text>
+
+  <line x1="700" y1="148" x2="700" y2="182" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
 
-  <!-- ================= parsing ================= -->
-  <rect x="310" y="190" width="580" height="132" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
-  <text x="330" y="212" font-size="12" font-weight="700" fill="#1d4ed8"
-        letter-spacing="1.2">PARSING</text>
+  <!-- ============================================================
+       PARSING
+       ============================================================ -->
+  <rect x="320" y="188" width="760" height="168" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="340" y="210" font-size="12" font-weight="700" fill="#1d4ed8"
+        letter-spacing="1.2">STEP 1 - READING THE FILE</text>
 
-  <rect x="336" y="224" width="248" height="80" rx="6" fill="#ffffff" stroke="#60a5fa"/>
-  <text x="460" y="250" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="340" y="222" width="355" height="122" rx="6" fill="#ffffff" stroke="#60a5fa"/>
+  <text x="517" y="246" text-anchor="middle" font-size="15" font-weight="600"
         fill="#1e3a8a">sexpr.py</text>
-  <text x="460" y="270" text-anchor="middle" font-size="11.5" fill="#475569">
-    dependency-free reader</text>
-  <text x="460" y="288" text-anchor="middle" font-size="11.5" fill="#475569">
-    keeps "100" a string</text>
+  <text x="517" y="263" text-anchor="middle" font-size="10.5" fill="#64748b"
+        font-style="italic">reads the raw text</text>
+  <text x="356" y="285" font-size="11.5" fill="#475569">A KiCad file is just text made of nested</text>
+  <text x="356" y="302" font-size="11.5" fill="#475569">brackets. This reads it and hands back</text>
+  <text x="356" y="319" font-size="11.5" fill="#475569">nested Python lists the code can step</text>
+  <text x="356" y="336" font-size="11.5" fill="#475569">through, one item at a time.</text>
 
-  <line x1="586" y1="264" x2="612" y2="264" stroke="#6b7280" stroke-width="1.6"
+  <line x1="697" y1="283" x2="723" y2="283" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
 
-  <rect x="616" y="224" width="248" height="80" rx="6" fill="#ffffff" stroke="#60a5fa"/>
-  <text x="740" y="250" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="725" y="222" width="355" height="122" rx="6" fill="#ffffff" stroke="#60a5fa"/>
+  <text x="902" y="246" text-anchor="middle" font-size="15" font-weight="600"
         fill="#1e3a8a">kicad_parser.py</text>
-  <text x="740" y="270" text-anchor="middle" font-size="11.5" fill="#475569">
-    symbols, wires, junctions,</text>
-  <text x="740" y="288" text-anchor="middle" font-size="11.5" fill="#475569">
-    labels, hierarchical sheets</text>
+  <text x="902" y="263" text-anchor="middle" font-size="10.5" fill="#64748b"
+        font-style="italic">works out what the lists mean</text>
+  <text x="741" y="285" font-size="11.5" fill="#475569">Picks out what matters: every symbol</text>
+  <text x="741" y="302" font-size="11.5" fill="#475569">with its position, rotation and pins, plus</text>
+  <text x="741" y="319" font-size="11.5" fill="#475569">each wire, junction and label. Anything</text>
+  <text x="741" y="336" font-size="11.5" fill="#475569">it can't read becomes a warning.</text>
 
-  <line x1="600" y1="322" x2="600" y2="392" stroke="#6b7280" stroke-width="1.6"
+  <line x1="700" y1="356" x2="700" y2="424" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
-  <rect x="418" y="341" width="364" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
-  <text x="600" y="361" text-anchor="middle" font-size="12" fill="#5b21b6">
-    SchematicDocument - faithful geometry, Y axis down</text>
+  <rect x="440" y="375" width="520" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
+  <text x="700" y="395" text-anchor="middle" font-size="12" fill="#5b21b6">
+    SchematicDocument - every shape, exactly where KiCad put it</text>
 
-  <!-- ================= netbuilder ================= -->
-  <rect x="370" y="396" width="460" height="86" rx="10" fill="#faf5ff" stroke="#c084fc"/>
-  <text x="600" y="424" text-anchor="middle" font-size="16" font-weight="600"
-        fill="#6b21a8">netbuilder.py</text>
-  <text x="600" y="445" text-anchor="middle" font-size="12" fill="#475569">
-    union-find over snapped points turns geometry into nets</text>
-  <text x="600" y="465" text-anchor="middle" font-size="12" fill="#475569">
-    a wire ending on a wire connects; a crossing does not</text>
+  <!-- ============================================================
+       NETBUILDER
+       ============================================================ -->
+  <rect x="390" y="428" width="620" height="136" rx="10" fill="#faf5ff" stroke="#c084fc"/>
+  <text x="700" y="454" text-anchor="middle" font-size="16" font-weight="600"
+        fill="#6b21a8">STEP 2 - netbuilder.py</text>
+  <text x="700" y="471" text-anchor="middle" font-size="10.5" fill="#7e22ce"
+        font-style="italic">turns shapes into an actual circuit</text>
+  <text x="408" y="493" font-size="12" fill="#475569">
+    So far we only have shapes at coordinates. This works out what is really connected:</text>
+  <text x="408" y="511" font-size="12" fill="#475569">
+    it groups every pin, wire and junction that touch into nets - the circuit's nodes. It</text>
+  <text x="408" y="529" font-size="12" fill="#475569">
+    follows KiCad's rules, so a wire ending on another wire joins it, but two wires that</text>
+  <text x="408" y="547" font-size="12" fill="#475569">
+    merely cross do not.</text>
 
-  <line x1="600" y1="482" x2="600" y2="552" stroke="#6b7280" stroke-width="1.6"/>
-  <rect x="418" y="501" width="364" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
-  <text x="600" y="521" text-anchor="middle" font-size="12" fill="#5b21b6">
-    CircuitGraph - components + nets (the shared pivot)</text>
+  <line x1="700" y1="564" x2="700" y2="626" stroke="#6b7280" stroke-width="1.6"/>
+  <rect x="440" y="577" width="520" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
+  <text x="700" y="597" text-anchor="middle" font-size="12" fill="#5b21b6">
+    CircuitGraph - the parts, and which node each pin sits on</text>
 
   <!-- split -->
-  <line x1="400" y1="552" x2="800" y2="552" stroke="#6b7280" stroke-width="1.6"/>
-  <line x1="400" y1="552" x2="400" y2="586" stroke="#6b7280" stroke-width="1.6"
+  <line x1="502" y1="626" x2="898" y2="626" stroke="#6b7280" stroke-width="1.6"/>
+  <line x1="502" y1="626" x2="502" y2="660" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
-  <line x1="800" y1="552" x2="800" y2="586" stroke="#6b7280" stroke-width="1.6"
+  <line x1="898" y1="626" x2="898" y2="660" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
+  <text x="700" y="648" text-anchor="middle" font-size="11" fill="#7e22ce"
+        font-style="italic">both outputs are built from this one graph</text>
 
-  <!-- ================= translation ================= -->
-  <rect x="230" y="590" width="340" height="172" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
-  <text x="250" y="612" font-size="12" font-weight="700" fill="#047857"
-        letter-spacing="1.2">TRANSLATION</text>
+  <!-- ============================================================
+       TRANSLATION
+       ============================================================ -->
+  <rect x="320" y="664" width="365" height="248" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="340" y="686" font-size="12" font-weight="700" fill="#047857"
+        letter-spacing="1.2">STEP 3a - THE PICTURE</text>
 
-  <rect x="254" y="622" width="292" height="62" rx="6" fill="#ffffff" stroke="#34d399"/>
-  <text x="400" y="646" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="338" y="698" width="329" height="124" rx="6" fill="#ffffff" stroke="#34d399"/>
+  <text x="502" y="722" text-anchor="middle" font-size="15" font-weight="600"
         fill="#065f46">circuitikz.py</text>
-  <text x="400" y="666" text-anchor="middle" font-size="11.5" fill="#475569">
-    graph + original layout -&gt; .tex</text>
+  <text x="502" y="739" text-anchor="middle" font-size="10.5" fill="#64748b"
+        font-style="italic">redraws the circuit in LaTeX</text>
+  <text x="354" y="761" font-size="11.5" fill="#475569">Chooses the matching CircuiTikZ</text>
+  <text x="354" y="778" font-size="11.5" fill="#475569">symbol for each part and puts it at</text>
+  <text x="354" y="795" font-size="11.5" fill="#475569">its original coordinates, so the</text>
+  <text x="354" y="812" font-size="11.5" fill="#475569">result looks like your KiCad sheet.</text>
 
-  <line x1="400" y1="684" x2="400" y2="702" stroke="#6b7280" stroke-width="1.6"
+  <line x1="502" y1="822" x2="502" y2="832" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
 
-  <rect x="254" y="702" width="292" height="52" rx="6" fill="#ffffff" stroke="#34d399"/>
-  <text x="400" y="723" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="338" y="834" width="329" height="66" rx="6" fill="#ffffff" stroke="#34d399"/>
+  <text x="502" y="856" text-anchor="middle" font-size="15" font-weight="600"
         fill="#065f46">renderer.py</text>
-  <text x="400" y="742" text-anchor="middle" font-size="11.5" fill="#475569">
-    pdflatex, pdftocairo, pdftoppm</text>
+  <text x="354" y="877" font-size="11.5" fill="#475569">Runs LaTeX on that file to make a</text>
+  <text x="354" y="894" font-size="11.5" fill="#475569">PDF, then converts it to SVG and PNG.</text>
 
-  <line x1="400" y1="762" x2="400" y2="784" stroke="#6b7280" stroke-width="1.6"
+  <line x1="502" y1="912" x2="502" y2="934" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
-  <rect x="254" y="788" width="292" height="46" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="400" y="808" text-anchor="middle" font-size="13" font-weight="600"
-        fill="#111827">.tex  .pdf  .svg  .png</text>
-  <text x="400" y="825" text-anchor="middle" font-size="11" fill="#6b7280">
-    layout-faithful drawing</text>
+  <rect x="338" y="938" width="329" height="50" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="502" y="959" text-anchor="middle" font-size="13" font-weight="600"
+        fill="#111827">.tex   .pdf   .svg   .png</text>
+  <text x="502" y="977" text-anchor="middle" font-size="11" fill="#6b7280">
+    a clean redraw of the same layout</text>
 
-  <!-- ================= accessibility ================= -->
-  <rect x="630" y="590" width="340" height="172" rx="10" fill="#fff7ed" stroke="#fdba74"/>
-  <text x="650" y="612" font-size="12" font-weight="700" fill="#c2410c"
-        letter-spacing="1.2">ACCESSIBILITY</text>
+  <!-- ============================================================
+       ACCESSIBILITY
+       ============================================================ -->
+  <rect x="715" y="664" width="365" height="248" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="735" y="686" font-size="12" font-weight="700" fill="#c2410c"
+        letter-spacing="1.2">STEP 3b - THE WORDS</text>
 
-  <rect x="654" y="622" width="292" height="62" rx="6" fill="#ffffff" stroke="#fb923c"/>
-  <text x="800" y="646" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="733" y="698" width="329" height="124" rx="6" fill="#ffffff" stroke="#fb923c"/>
+  <text x="897" y="722" text-anchor="middle" font-size="15" font-weight="600"
         fill="#9a3412">analyzer.py</text>
-  <text x="800" y="666" text-anchor="middle" font-size="11" fill="#475569">
-    series, parallel, dividers, filters, op-amps</text>
+  <text x="897" y="739" text-anchor="middle" font-size="10.5" fill="#64748b"
+        font-style="italic">recognises circuit patterns</text>
+  <text x="749" y="761" font-size="11.5" fill="#475569">Spots which parts sit in series or in</text>
+  <text x="749" y="778" font-size="11.5" fill="#475569">parallel, and which ones together</text>
+  <text x="749" y="795" font-size="11.5" fill="#475569">form a voltage divider, RC filter,</text>
+  <text x="749" y="812" font-size="11.5" fill="#475569">Wheatstone bridge or op-amp stage.</text>
 
-  <line x1="800" y1="684" x2="800" y2="702" stroke="#6b7280" stroke-width="1.6"
+  <line x1="897" y1="822" x2="897" y2="832" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
 
-  <rect x="654" y="702" width="292" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
-  <text x="800" y="723" text-anchor="middle" font-size="15" font-weight="600"
+  <rect x="733" y="834" width="329" height="66" rx="6" fill="#ffffff" stroke="#fb923c"/>
+  <text x="897" y="856" text-anchor="middle" font-size="15" font-weight="600"
         fill="#9a3412">alttext.py</text>
-  <text x="800" y="742" text-anchor="middle" font-size="11.5" fill="#475569">
-    structured natural language</text>
+  <text x="749" y="877" font-size="11.5" fill="#475569">Writes it in an order a listener can</text>
+  <text x="749" y="894" font-size="11.5" fill="#475569">follow: overview, patterns, then pins.</text>
 
-  <line x1="800" y1="762" x2="800" y2="784" stroke="#6b7280" stroke-width="1.6"
+  <line x1="897" y1="912" x2="897" y2="934" stroke="#6b7280" stroke-width="1.6"
         marker-end="url(#arrow)"/>
-  <rect x="654" y="788" width="292" height="46" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
-  <text x="800" y="808" text-anchor="middle" font-size="13" font-weight="600"
+  <rect x="733" y="938" width="329" height="50" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="897" y="959" text-anchor="middle" font-size="13" font-weight="600"
         fill="#111827">_alt_text.txt</text>
-  <text x="800" y="825" text-anchor="middle" font-size="11" fill="#6b7280">
-    screen-reader description</text>
+  <text x="897" y="977" text-anchor="middle" font-size="11" fill="#6b7280">
+    what a screen reader speaks aloud</text>
 </svg>
