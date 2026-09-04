@@ -140,7 +140,7 @@
        ============================================================ -->
   <rect x="320" y="188" width="760" height="168" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
   <text x="340" y="210" font-size="12" font-weight="700" fill="#1d4ed8"
-        letter-spacing="1.2">STEP 1 - READING THE FILE</text>
+        letter-spacing="1.2">PARSING</text>
 
   <rect x="340" y="222" width="355" height="122" rx="6" fill="#ffffff" stroke="#60a5fa"/>
   <text x="517" y="246" text-anchor="middle" font-size="15" font-weight="600"
@@ -176,7 +176,7 @@
        ============================================================ -->
   <rect x="390" y="428" width="620" height="136" rx="10" fill="#faf5ff" stroke="#c084fc"/>
   <text x="700" y="454" text-anchor="middle" font-size="16" font-weight="600"
-        fill="#6b21a8">STEP 2 - netbuilder.py</text>
+        fill="#6b21a8">netbuilder.py</text>
   <text x="700" y="471" text-anchor="middle" font-size="10.5" fill="#7e22ce"
         font-style="italic">turns shapes into an actual circuit</text>
   <text x="408" y="493" font-size="12" fill="#475569">
@@ -207,7 +207,7 @@
        ============================================================ -->
   <rect x="320" y="664" width="365" height="248" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
   <text x="340" y="686" font-size="12" font-weight="700" fill="#047857"
-        letter-spacing="1.2">STEP 3a - THE PICTURE</text>
+        letter-spacing="1.2">TRANSLATION</text>
 
   <rect x="338" y="698" width="329" height="124" rx="6" fill="#ffffff" stroke="#34d399"/>
   <text x="502" y="722" text-anchor="middle" font-size="15" font-weight="600"
@@ -241,7 +241,7 @@
        ============================================================ -->
   <rect x="715" y="664" width="365" height="248" rx="10" fill="#fff7ed" stroke="#fdba74"/>
   <text x="735" y="686" font-size="12" font-weight="700" fill="#c2410c"
-        letter-spacing="1.2">STEP 3b - THE WORDS</text>
+        letter-spacing="1.2">ACCESSIBILITY</text>
 
   <rect x="733" y="698" width="329" height="124" rx="6" fill="#ffffff" stroke="#fb923c"/>
   <text x="897" y="722" text-anchor="middle" font-size="15" font-weight="600"
