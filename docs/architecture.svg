@@ -1,0 +1,215 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1200 850" width="1200" height="850"
+     font-family="'Segoe UI',Helvetica,Arial,sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="9" refY="5"
+            markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#6b7280"/>
+    </marker>
+  </defs>
+
+  <rect width="1200" height="850" fill="#ffffff"/>
+
+  <!-- Title -->
+  <text x="600" y="44" text-anchor="middle" font-size="24" font-weight="600"
+        fill="#111827">SchemAccess - module architecture</text>
+  <text x="600" y="70" text-anchor="middle" font-size="14" fill="#6b7280">
+    One KiCad schematic in; an accessible description and a CircuiTikZ drawing out
+  </text>
+
+  <!-- ================= shared data model rail ================= -->
+  <rect x="30" y="190" width="170" height="570" rx="10" fill="#f8fafc"
+        stroke="#cbd5e1" stroke-dasharray="5 4"/>
+  <text x="115" y="220" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#334155">model.py</text>
+  <text x="115" y="238" text-anchor="middle" font-size="11" fill="#64748b">shared data model</text>
+  <line x1="46" y1="252" x2="184" y2="252" stroke="#e2e8f0"/>
+
+  <text x="46" y="278" font-size="11.5" font-weight="600" fill="#475569">Document layer</text>
+  <text x="46" y="296" font-size="11" fill="#64748b">SchematicDocument</text>
+  <text x="52" y="313" font-size="11" fill="#64748b">LibSymbol / PinDef</text>
+  <text x="52" y="330" font-size="11" fill="#64748b">SymbolInstance</text>
+  <text x="52" y="347" font-size="11" fill="#64748b">Wire / Junction</text>
+  <text x="52" y="364" font-size="11" fill="#64748b">Label / SheetRef</text>
+  <text x="46" y="384" font-size="10.5" fill="#94a3b8">geometry, Y axis down</text>
+
+  <line x1="46" y1="402" x2="184" y2="402" stroke="#e2e8f0"/>
+
+  <text x="46" y="428" font-size="11.5" font-weight="600" fill="#475569">Circuit layer</text>
+  <text x="46" y="446" font-size="11" fill="#64748b">CircuitGraph</text>
+  <text x="52" y="463" font-size="11" fill="#64748b">Component</text>
+  <text x="52" y="480" font-size="11" fill="#64748b">PinConnection</text>
+  <text x="52" y="497" font-size="11" fill="#64748b">Net</text>
+  <text x="46" y="517" font-size="10.5" fill="#94a3b8">electrical graph</text>
+
+  <line x1="46" y1="535" x2="184" y2="535" stroke="#e2e8f0"/>
+
+  <text x="46" y="561" font-size="11.5" font-weight="600" fill="#475569">Key helpers</text>
+  <text x="46" y="580" font-size="11" fill="#64748b">snap()</text>
+  <text x="52" y="596" font-size="10.5" fill="#94a3b8">0.0001 mm keys</text>
+  <text x="46" y="617" font-size="11" fill="#64748b">lib_point()</text>
+  <text x="52" y="633" font-size="10.5" fill="#94a3b8">rotate, flip Y,</text>
+  <text x="52" y="648" font-size="10.5" fill="#94a3b8">then mirror</text>
+  <text x="46" y="669" font-size="11" fill="#64748b">classify()</text>
+  <text x="52" y="685" font-size="10.5" fill="#94a3b8">part -&gt; ComponentType</text>
+
+  <text x="115" y="726" text-anchor="middle" font-size="10.5" fill="#94a3b8">every module</text>
+  <text x="115" y="741" text-anchor="middle" font-size="10.5" fill="#94a3b8">speaks these types</text>
+
+  <!-- ================= orchestration rail ================= -->
+  <rect x="1000" y="190" width="170" height="570" rx="10" fill="#f8fafc"
+        stroke="#cbd5e1" stroke-dasharray="5 4"/>
+  <text x="1085" y="220" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#334155">Front ends</text>
+  <text x="1085" y="238" text-anchor="middle" font-size="11" fill="#64748b">drive the pipeline</text>
+  <line x1="1016" y1="252" x2="1154" y2="252" stroke="#e2e8f0"/>
+
+  <text x="1016" y="280" font-size="12" font-weight="600" fill="#475569">pipeline.py</text>
+  <text x="1016" y="298" font-size="11" fill="#64748b">run_pipeline()</text>
+  <text x="1016" y="315" font-size="11" fill="#64748b">PipelineOptions</text>
+  <text x="1016" y="332" font-size="11" fill="#64748b">ConversionStats</text>
+  <text x="1016" y="349" font-size="10.5" fill="#94a3b8">counts + per-stage</text>
+  <text x="1016" y="364" font-size="10.5" fill="#94a3b8">timings in ms</text>
+
+  <line x1="1016" y1="382" x2="1154" y2="382" stroke="#e2e8f0"/>
+
+  <text x="1016" y="410" font-size="12" font-weight="600" fill="#475569">cli.py</text>
+  <text x="1016" y="428" font-size="11" fill="#64748b">-o, -f, --check</text>
+  <text x="1016" y="445" font-size="11" fill="#64748b">--no-junction-dots</text>
+  <text x="1016" y="462" font-size="10.5" fill="#94a3b8">exit 1 if anything</text>
+  <text x="1016" y="477" font-size="10.5" fill="#94a3b8">fails to convert</text>
+
+  <line x1="1016" y1="495" x2="1154" y2="495" stroke="#e2e8f0"/>
+
+  <text x="1016" y="523" font-size="12" font-weight="600" fill="#475569">gui/</text>
+  <text x="1016" y="541" font-size="11" fill="#64748b">main_window.py</text>
+  <text x="1016" y="558" font-size="11" fill="#64748b">PySide6</text>
+  <text x="1016" y="575" font-size="10.5" fill="#94a3b8">QThread worker so</text>
+  <text x="1016" y="590" font-size="10.5" fill="#94a3b8">the UI stays live</text>
+  <text x="1016" y="610" font-size="10.5" fill="#94a3b8">drag and drop,</text>
+  <text x="1016" y="625" font-size="10.5" fill="#94a3b8">accessible widgets,</text>
+  <text x="1016" y="640" font-size="10.5" fill="#94a3b8">conversion summary</text>
+
+  <line x1="1016" y1="660" x2="1154" y2="660" stroke="#e2e8f0"/>
+  <text x="1016" y="686" font-size="12" font-weight="600" fill="#475569">tests/</text>
+  <text x="1016" y="704" font-size="11" fill="#64748b">330 tests</text>
+  <text x="1016" y="721" font-size="10.5" fill="#94a3b8">three-way audit</text>
+  <text x="1016" y="736" font-size="10.5" fill="#94a3b8">cross-checks all</text>
+  <text x="1016" y="751" font-size="10.5" fill="#94a3b8">three artefacts</text>
+
+  <!-- ================= input ================= -->
+  <rect x="450" y="100" width="300" height="54" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="600" y="124" text-anchor="middle" font-size="16" font-weight="600"
+        fill="#111827">.kicad_sch</text>
+  <text x="600" y="143" text-anchor="middle" font-size="11.5" fill="#6b7280">
+    native KiCad 6-10 schematic file</text>
+
+  <line x1="600" y1="154" x2="600" y2="184" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+
+  <!-- ================= parsing ================= -->
+  <rect x="310" y="190" width="580" height="132" rx="10" fill="#eff6ff" stroke="#93c5fd"/>
+  <text x="330" y="212" font-size="12" font-weight="700" fill="#1d4ed8"
+        letter-spacing="1.2">PARSING</text>
+
+  <rect x="336" y="224" width="248" height="80" rx="6" fill="#ffffff" stroke="#60a5fa"/>
+  <text x="460" y="250" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#1e3a8a">sexpr.py</text>
+  <text x="460" y="270" text-anchor="middle" font-size="11.5" fill="#475569">
+    dependency-free reader</text>
+  <text x="460" y="288" text-anchor="middle" font-size="11.5" fill="#475569">
+    keeps "100" a string</text>
+
+  <line x1="586" y1="264" x2="612" y2="264" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+
+  <rect x="616" y="224" width="248" height="80" rx="6" fill="#ffffff" stroke="#60a5fa"/>
+  <text x="740" y="250" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#1e3a8a">kicad_parser.py</text>
+  <text x="740" y="270" text-anchor="middle" font-size="11.5" fill="#475569">
+    symbols, wires, junctions,</text>
+  <text x="740" y="288" text-anchor="middle" font-size="11.5" fill="#475569">
+    labels, hierarchical sheets</text>
+
+  <line x1="600" y1="322" x2="600" y2="392" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+  <rect x="418" y="341" width="364" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
+  <text x="600" y="361" text-anchor="middle" font-size="12" fill="#5b21b6">
+    SchematicDocument - faithful geometry, Y axis down</text>
+
+  <!-- ================= netbuilder ================= -->
+  <rect x="370" y="396" width="460" height="86" rx="10" fill="#faf5ff" stroke="#c084fc"/>
+  <text x="600" y="424" text-anchor="middle" font-size="16" font-weight="600"
+        fill="#6b21a8">netbuilder.py</text>
+  <text x="600" y="445" text-anchor="middle" font-size="12" fill="#475569">
+    union-find over snapped points turns geometry into nets</text>
+  <text x="600" y="465" text-anchor="middle" font-size="12" fill="#475569">
+    a wire ending on a wire connects; a crossing does not</text>
+
+  <line x1="600" y1="482" x2="600" y2="552" stroke="#6b7280" stroke-width="1.6"/>
+  <rect x="418" y="501" width="364" height="30" rx="15" fill="#ffffff" stroke="#c4b5fd"/>
+  <text x="600" y="521" text-anchor="middle" font-size="12" fill="#5b21b6">
+    CircuitGraph - components + nets (the shared pivot)</text>
+
+  <!-- split -->
+  <line x1="400" y1="552" x2="800" y2="552" stroke="#6b7280" stroke-width="1.6"/>
+  <line x1="400" y1="552" x2="400" y2="586" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+  <line x1="800" y1="552" x2="800" y2="586" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+
+  <!-- ================= translation ================= -->
+  <rect x="230" y="590" width="340" height="172" rx="10" fill="#ecfdf5" stroke="#6ee7b7"/>
+  <text x="250" y="612" font-size="12" font-weight="700" fill="#047857"
+        letter-spacing="1.2">TRANSLATION</text>
+
+  <rect x="254" y="622" width="292" height="62" rx="6" fill="#ffffff" stroke="#34d399"/>
+  <text x="400" y="646" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#065f46">circuitikz.py</text>
+  <text x="400" y="666" text-anchor="middle" font-size="11.5" fill="#475569">
+    graph + original layout -&gt; .tex</text>
+
+  <line x1="400" y1="684" x2="400" y2="702" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+
+  <rect x="254" y="702" width="292" height="52" rx="6" fill="#ffffff" stroke="#34d399"/>
+  <text x="400" y="723" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#065f46">renderer.py</text>
+  <text x="400" y="742" text-anchor="middle" font-size="11.5" fill="#475569">
+    pdflatex, pdftocairo, pdftoppm</text>
+
+  <line x1="400" y1="762" x2="400" y2="784" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+  <rect x="254" y="788" width="292" height="46" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="400" y="808" text-anchor="middle" font-size="13" font-weight="600"
+        fill="#111827">.tex  .pdf  .svg  .png</text>
+  <text x="400" y="825" text-anchor="middle" font-size="11" fill="#6b7280">
+    layout-faithful drawing</text>
+
+  <!-- ================= accessibility ================= -->
+  <rect x="630" y="590" width="340" height="172" rx="10" fill="#fff7ed" stroke="#fdba74"/>
+  <text x="650" y="612" font-size="12" font-weight="700" fill="#c2410c"
+        letter-spacing="1.2">ACCESSIBILITY</text>
+
+  <rect x="654" y="622" width="292" height="62" rx="6" fill="#ffffff" stroke="#fb923c"/>
+  <text x="800" y="646" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#9a3412">analyzer.py</text>
+  <text x="800" y="666" text-anchor="middle" font-size="11" fill="#475569">
+    series, parallel, dividers, filters, op-amps</text>
+
+  <line x1="800" y1="684" x2="800" y2="702" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+
+  <rect x="654" y="702" width="292" height="52" rx="6" fill="#ffffff" stroke="#fb923c"/>
+  <text x="800" y="723" text-anchor="middle" font-size="15" font-weight="600"
+        fill="#9a3412">alttext.py</text>
+  <text x="800" y="742" text-anchor="middle" font-size="11.5" fill="#475569">
+    structured natural language</text>
+
+  <line x1="800" y1="762" x2="800" y2="784" stroke="#6b7280" stroke-width="1.6"
+        marker-end="url(#arrow)"/>
+  <rect x="654" y="788" width="292" height="46" rx="8" fill="#f3f4f6" stroke="#9ca3af"/>
+  <text x="800" y="808" text-anchor="middle" font-size="13" font-weight="600"
+        fill="#111827">_alt_text.txt</text>
+  <text x="800" y="825" text-anchor="middle" font-size="11" fill="#6b7280">
+    screen-reader description</text>
+</svg>
