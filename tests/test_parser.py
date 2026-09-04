@@ -79,6 +79,59 @@ def test_fun1_rc_divider_net_membership(load) -> None:
 
 
 # ---------------------------------------------------------------------------
+# FUN-1 wire-to-wire connectivity.  These two rules sit either side of a
+# fine line and are easy to get backwards, so they are pinned directly on
+# hand-built geometry rather than on a fixture file.
+# ---------------------------------------------------------------------------
+
+def _wire_only_doc(*segments) -> "SchematicDocument":
+    """A document containing nothing but the given wire segments."""
+    from schemaccess.model import SchematicDocument, Wire
+
+    return SchematicDocument(
+        wires=[Wire(points=[a, b]) for a, b in segments])
+
+
+def test_fun1_wire_ending_on_another_wire_connects() -> None:
+    """A T joint connects even with no junction dot stored in the file.
+
+    KiCad draws the dot for you and does not always write one, so
+    connectivity may not depend on the dot being present.
+    """
+    from schemaccess.netbuilder import build_graph
+
+    doc = _wire_only_doc(
+        ((0.0, 0.0), (10.0, 0.0)),     # horizontal rail
+        ((5.0, 0.0), (5.0, 5.0)),      # stub ending on the rail's middle
+    )
+    assert len(build_graph(doc).nets) == 1
+
+
+def test_fun1_wires_crossing_without_a_junction_stay_separate() -> None:
+    """Two wires crossing mid-span are not connected without a junction."""
+    from schemaccess.netbuilder import build_graph
+
+    doc = _wire_only_doc(
+        ((0.0, 5.0), (10.0, 5.0)),     # horizontal, crossing at (5, 5)
+        ((5.0, 0.0), (5.0, 10.0)),     # vertical, neither end on the other
+    )
+    assert len(build_graph(doc).nets) == 2
+
+
+def test_fun1_crossing_wires_connect_when_a_junction_is_present() -> None:
+    """The same crossing becomes one net once a junction is placed on it."""
+    from schemaccess.model import Junction
+    from schemaccess.netbuilder import build_graph
+
+    doc = _wire_only_doc(
+        ((0.0, 5.0), (10.0, 5.0)),
+        ((5.0, 0.0), (5.0, 10.0)),
+    )
+    doc.junctions.append(Junction(x=5.0, y=5.0))
+    assert len(build_graph(doc).nets) == 1
+
+
+# ---------------------------------------------------------------------------
 # FUN-1 conversion report: counts the components in each KiCad file and
 # shows how many made it through to the alt-text description.
 #

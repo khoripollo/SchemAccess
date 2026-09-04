@@ -112,11 +112,18 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
                 uf.union(p, a)
                 uf.union(p, b)
 
-    # 2. Junctions connect wire interiors that pass through them.
+    # 2. A wire ending on another wire joins it (a T joint). KiCad draws a
+    #    junction dot there but does not always store one, so connectivity
+    #    cannot rely on the dot. Only endpoints are attached: wires that
+    #    merely cross mid-span stay separate, as KiCad intends.
+    for endpoint in sorted({p for seg in segments for p in seg}):
+        attach(endpoint)
+
+    # 3. Junctions connect wire interiors that pass through them.
     for junc in doc.junctions:
         attach(snap(junc.x, junc.y))
 
-    # 3. Symbol pins.
+    # 4. Symbol pins.
     pin_points: List[Tuple[SymbolInstance, str, str, str, Point]] = []
     for inst in doc.symbols:
         lib = doc.lib_symbol_for(inst)
@@ -130,7 +137,7 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
             attach(pos)
             pin_points.append((inst, pin.number, pin.name, pin.etype, pos))
 
-    # 4. Labels attach names at their anchor point.
+    # 5. Labels attach names at their anchor point.
     for lbl in doc.labels:
         attach(snap(lbl.x, lbl.y))
 
@@ -150,7 +157,7 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
     for lbl in doc.labels:
         label_at[snap(lbl.x, lbl.y)].append(lbl)
 
-    # 5. Name-based connections (no wires needed): power symbols and
+    # 6. Name-based connections (no wires needed): power symbols and
     #    global labels join same-named nets anywhere in the schematic;
     #    local labels join same-named nets on the same sheet (the parser
     #    namespaces them per sheet when flattening); hierarchical labels
@@ -291,6 +298,12 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
             if pin.net_id < 0:
                 continue
             net = graph.nets[pin.net_id]
+            # A net named by a power symbol, a label or a sheet pin is a
+            # real connection even when only one component pin sits on it:
+            # a lone pin on GND ties to ground, and a lone pin on a label
+            # is an external port. Only anonymous single-pin nets dangle.
+            if net.kind != NetKind.ANONYMOUS:
+                continue
             if len(net.pins) == 1 and pin.position not in nc_points:
                 graph.warnings.append(
                     f"Pin {number} of {comp.ref} appears unconnected.")
