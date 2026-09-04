@@ -67,6 +67,32 @@ def pytest_configure(config: pytest.Config) -> None:
         "slow: slow tests that drive the external LaTeX toolchain")
 
 
+def pytest_addoption(parser: pytest.Parser) -> None:
+    """Add ``--schematic PATH`` for auditing a schematic of your own."""
+    parser.addoption(
+        "--schematic", action="append", default=[], metavar="PATH",
+        help="an extra .kicad_sch file to audit alongside the fixture "
+             "corpus; repeatable.  Needs no manifest entry - the audit "
+             "derives its expectations from the file itself.")
+
+
+def pytest_generate_tests(metafunc: pytest.Metafunc) -> None:
+    """Parametrize any test taking ``schematic`` over every input file.
+
+    That is the fixture corpus plus whatever ``--schematic`` supplies,
+    so pointing the audit at your own design needs no code change.
+    """
+    if "schematic" not in metafunc.fixturenames:
+        return
+    paths = [FIXTURES_DIR / name for name in VALID_FIXTURES]
+    for given in metafunc.config.getoption("--schematic"):
+        path = Path(given).expanduser()
+        if not path.is_file():
+            raise pytest.UsageError(f"--schematic: no such file: {path}")
+        paths.append(path.resolve())
+    metafunc.parametrize("schematic", paths, ids=[p.name for p in paths])
+
+
 @pytest.fixture(scope="session", autouse=True)
 def ensure_big_200() -> None:
     """Regenerate ``big_200.kicad_sch`` via ``gen_big.py`` if missing."""
