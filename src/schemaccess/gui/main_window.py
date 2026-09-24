@@ -20,6 +20,7 @@ from PySide6.QtGui import (
     QCloseEvent,
     QDragEnterEvent,
     QDropEvent,
+    QPainter,
     QPixmap,
 )
 from PySide6.QtWidgets import (
@@ -76,6 +77,8 @@ def make_pipeline_options(
     export_format_label: str,
     detail_label: str = "Detailed",
     junction_dots: bool = True,
+    show_loops: bool = False,
+    show_units: bool = False,
 ) -> PipelineOptions:
     """Translate GUI widget state into a :class:`PipelineOptions`.
 
@@ -93,6 +96,8 @@ def make_pipeline_options(
         export_format=FORMAT_VALUES.get(export_format_label, "all"),
         detail_level=DETAIL_VALUES.get(detail_label, GUI_DETAIL_LEVEL),
         junction_dots=junction_dots,
+        show_loops=show_loops,
+        show_units=show_units,
     )
 
 
@@ -225,11 +230,33 @@ class MainWindow(QMainWindow):
             "the alt text are unchanged either way.")
         self.junction_check.toggled.connect(self._on_option_toggled)
 
+        self.loops_check = QCheckBox("Show &loop currents (i1, i2, ...)",
+                                     options_group)
+        self.loops_check.setChecked(False)
+        self.loops_check.setAccessibleName("Show loop currents")
+        self.loops_check.setAccessibleDescription(
+            "For teaching mesh analysis: draws each loop current as an "
+            "arrow in its window, turning the way its current flows, and "
+            "describes the loops in the alt text. Works on flat circuits of "
+            "two-terminal parts with up to four loops; for any other circuit "
+            "the summary says why no loops were drawn.")
+        self.loops_check.toggled.connect(self._on_option_toggled)
+
+        self.units_check = QCheckBox("Show &units on values (1 H, 22 nF)",
+                                     options_group)
+        self.units_check.setAccessibleName("Show units on values")
+        self.units_check.setAccessibleDescription(
+            "Writes the unit after each value on the drawing, for example "
+            "1 H for an inductor or 22 nF for a capacitor.")
+        self.units_check.toggled.connect(self._on_option_toggled)
+
         options_layout.addWidget(self.alt_text_check, 0, 0)
         options_layout.addWidget(self.image_check, 0, 1)
         options_layout.addWidget(self.format_label, 1, 0)
         options_layout.addWidget(self.format_combo, 1, 1)
         options_layout.addWidget(self.junction_check, 2, 0, 1, 2)
+        options_layout.addWidget(self.loops_check, 3, 0, 1, 2)
+        options_layout.addWidget(self.units_check, 4, 0, 1, 2)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -344,7 +371,9 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.alt_text_check, self.image_check)
         QWidget.setTabOrder(self.image_check, self.format_combo)
         QWidget.setTabOrder(self.format_combo, self.junction_check)
-        QWidget.setTabOrder(self.junction_check, self.output_edit)
+        QWidget.setTabOrder(self.junction_check, self.loops_check)
+        QWidget.setTabOrder(self.loops_check, self.units_check)
+        QWidget.setTabOrder(self.units_check, self.output_edit)
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
         QWidget.setTabOrder(self.generate_button, self.progress_log)
@@ -370,6 +399,10 @@ class MainWindow(QMainWindow):
             self.format_combo.setCurrentText(fmt)
         self.junction_check.setChecked(
             bool(s.value("options/junction_dots", True, type=bool)))
+        self.loops_check.setChecked(
+            bool(s.value("options/show_loops", False, type=bool)))
+        self.units_check.setChecked(
+            bool(s.value("options/show_units", False, type=bool)))
 
     def _save_settings(self) -> None:
         """Persist UI state to QSettings."""
@@ -381,6 +414,8 @@ class MainWindow(QMainWindow):
         s.setValue("options/generate_image", self.image_check.isChecked())
         s.setValue("options/export_format", self.format_combo.currentText())
         s.setValue("options/junction_dots", self.junction_check.isChecked())
+        s.setValue("options/show_loops", self.loops_check.isChecked())
+        s.setValue("options/show_units", self.units_check.isChecked())
         s.sync()
 
     # --------------------------------------------------------- interactions
@@ -442,6 +477,8 @@ class MainWindow(QMainWindow):
             generate_image=self.image_check.isChecked(),
             export_format_label=self.format_combo.currentText(),
             junction_dots=self.junction_check.isChecked(),
+            show_loops=self.loops_check.isChecked(),
+            show_units=self.units_check.isChecked(),
         )
 
     # ------------------------------------------------------------- pipeline
@@ -510,9 +547,13 @@ class MainWindow(QMainWindow):
         if result.alt_text:
             self.results_edit.setPlainText(result.alt_text)
 
-        png_path = result.output_files.get("png", "")
-        if png_path and os.path.isfile(png_path):
-            self._show_preview(png_path, result.alt_text)
+        # Prefer the rendered PNG; fall back to the vector drawing, which
+        # is produced even when there is no LaTeX toolchain installed.
+        for key in ("png", "svg", "svg_preview"):
+            path = result.output_files.get(key, "")
+            if path and os.path.isfile(path):
+                self._show_preview(path, result.alt_text)
+                break
 
         if result.ok:
             self._append_progress("Finished successfully.")
@@ -545,22 +586,53 @@ class MainWindow(QMainWindow):
             self._thread.deleteLater()
             self._thread = None
 
-    def _show_preview(self, png_path: str, alt_text: str) -> None:
-        """Display a scaled preview of the rendered PNG with alt text."""
-        pixmap = QPixmap(png_path)
-        if pixmap.isNull():
+    def _show_preview(self, image_path: str, alt_text: str) -> None:
+        """Display a scaled preview of the drawing, with the alt text.
+
+        Accepts a raster image or an SVG: Qt cannot put an SVG straight
+        into a QPixmap, so one is rendered through QSvgRenderer first.
+        """
+        if image_path.lower().endswith(".svg"):
+            pixmap = self._render_svg(image_path)
+        else:
+            pixmap = QPixmap(image_path)
+        if pixmap is None or pixmap.isNull():
             self._append_progress(
-                f"Warning: could not load preview image {png_path}")
+                f"Warning: could not load preview image {image_path}")
             return
         scaled = pixmap.scaled(
             560, 300,
             Qt.AspectRatioMode.KeepAspectRatio,
             Qt.TransformationMode.SmoothTransformation)
         self.preview_label.setPixmap(scaled)
-        description = alt_text or f"Rendered schematic image {png_path}"
+        description = alt_text or f"Rendered schematic image {image_path}"
         self.preview_label.setAccessibleDescription(description)
         self.preview_label.setToolTip(description)
         self.preview_label.setVisible(True)
+
+    def _render_svg(self, svg_path: str) -> Optional[QPixmap]:
+        """Rasterise an SVG for on-screen preview, or None if Qt cannot."""
+        try:
+            from PySide6.QtSvg import QSvgRenderer
+        except ImportError:      # QtSvg is optional in some Qt builds
+            self._append_progress(
+                "Note: Qt has no SVG support, so the drawing is not "
+                "previewed here; the file itself was written.")
+            return None
+        renderer = QSvgRenderer(svg_path)
+        if not renderer.isValid():
+            return None
+        size = renderer.defaultSize()
+        if size.width() <= 0 or size.height() <= 0:
+            return None
+        scale = min(1120.0 / size.width(), 600.0 / size.height(), 4.0)
+        pixmap = QPixmap(max(1, int(size.width() * scale)),
+                         max(1, int(size.height() * scale)))
+        pixmap.fill(Qt.GlobalColor.white)
+        painter = QPainter(pixmap)
+        renderer.render(painter)
+        painter.end()
+        return pixmap
 
     def _open_output_folder(self) -> None:
         """Open the output folder in the platform file manager."""

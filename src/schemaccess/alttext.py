@@ -20,6 +20,7 @@ import re
 from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import analyzer
+from .loops import find_meshes, same_way
 from .model import (CircuitGraph, Component, ComponentType, NetKind,
                     PinConnection)
 from .netbuilder import node_names
@@ -436,13 +437,45 @@ def _detailed_lines(graph: CircuitGraph,
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def generate(graph: CircuitGraph, detail: str = "standard") -> str:
+def _loop_lines(graph: CircuitGraph, level: str) -> List[str]:
+    found = find_meshes(graph)
+    if not found.ok:
+        return [f"Loop currents are not shown: {found.reason}."]
+    names = [mesh.name for mesh in found.meshes]
+    if len(names) == 1:
+        lines = [f"The drawing marks one loop current for mesh analysis, "
+                 f"{names[0]}, drawn the way its current flows."]
+    else:
+        lines = [f"The drawing marks {len(names)} loop currents for mesh "
+                 f"analysis, {_join(names)}, each drawn the way its current "
+                 f"flows."]
+    if level == "short":
+        return lines
+    for mesh in found.meshes:
+        lines.append(f"{mesh.name} flows {mesh.sense} through "
+                     f"{_join(mesh.refs)}.")
+    for ref, first, second in found.shared():
+        if same_way(first, second):
+            lines.append(f"{ref} is shared by {first.name} and "
+                         f"{second.name}, which pass through it the same "
+                         f"way, so its current is {first.name} plus "
+                         f"{second.name}.")
+        else:
+            lines.append(f"{ref} is shared by {first.name} and "
+                         f"{second.name}, which pass through it opposite "
+                         f"ways, so its current is {first.name} minus "
+                         f"{second.name}, taken in the direction of "
+                         f"{first.name}.")
+    return lines
+
+
+def generate(graph: CircuitGraph, detail: str = "standard",
+             loops: bool = False) -> str:
     """Return a structured natural-language description of *graph*.
 
     *detail* is one of ``short``, ``standard``, ``detailed`` (anything
-    else falls back to ``standard``).  Output is deterministic for
-    identical inputs; sentences are separated by newlines and carry no
-    trailing whitespace.
+    else falls back to ``standard``).  Output is deterministic for identical inputs; sentences are separated
+    by newlines and carry no trailing whitespace.
     """
     level = (detail or "standard").strip().lower()
     names = node_names(graph)
@@ -460,4 +493,7 @@ def generate(graph: CircuitGraph, detail: str = "standard") -> str:
     else:
         analysis = analyzer.analyze(graph)
         lines = _standard_lines(graph, analysis, nname)
+    if loops:
+        at = lines.index("Warnings:") if "Warnings:" in lines else len(lines)
+        lines[at:at] = _loop_lines(graph, level)
     return "\n".join(line.rstrip() for line in lines)

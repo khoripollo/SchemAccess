@@ -21,10 +21,13 @@ import argparse
 import os
 import sys
 
-from . import __version__, pipeline
+from . import __version__, netlist, pipeline
 
 #: Preferred, deterministic ordering for the "wrote:" report lines.
-_FILE_ORDER = ("alt_text", "tex", "pdf", "svg", "png")
+_FILE_ORDER = ("alt_text", "tex", "pdf", "svg", "png",
+               "pdf_preview", "svg_preview",
+               "netlist_spice", "netlist_kicad", "netlist_text",
+               "netlist_csv")
 
 _EPILOG = """\
 notes:
@@ -38,6 +41,10 @@ examples:
   schemaccess board.kicad_sch -o out --format svg --detail detailed
   schemaccess board.kicad_sch --no-image --print-alt --quiet
   schemaccess board.kicad_sch --no-junction-dots --format pdf
+  schemaccess board.kicad_sch --loops --detail detailed
+  schemaccess board.kicad_sch --units --format pdf
+  schemaccess board.kicad_sch --netlist all --svg-preview --pdf-preview
+  schemaccess board.kicad_sch --netlist spice,csv --no-image
 """
 
 
@@ -107,6 +114,41 @@ def build_parser() -> argparse.ArgumentParser:
              "(they are included by default, as KiCad draws them)",
     )
     parser.add_argument(
+        "--loops",
+        action="store_true",
+        help="for teaching mesh analysis: draw each loop current (i1, i2, "
+             "...) as an arrow in its window, turning the way its current "
+             "flows, and describe the loops in the alt text.  Works on flat "
+             "circuits of two-terminal parts with up to 4 loops; any other "
+             "circuit is converted without them and a warning says why",
+    )
+    parser.add_argument(
+        "--units",
+        action="store_true",
+        help="write units after the values on the drawing (1 -> 1 H, "
+             "22n -> 22 nF, 100k -> 100 kΩ)",
+    )
+    parser.add_argument(
+        "--netlist",
+        metavar="FORMATS",
+        default="",
+        help="also write netlists: a comma-separated list of "
+             + ", ".join(netlist.FORMATS)
+             + ", or 'all' (default: none)",
+    )
+    parser.add_argument(
+        "--svg-preview",
+        action="store_true",
+        help="also write <stem>_preview.svg, drawn without LaTeX (useful "
+             "on a machine with no TeX toolchain)",
+    )
+    parser.add_argument(
+        "--pdf-preview",
+        action="store_true",
+        help="also write <stem>_preview.pdf, the same drawing as a vector "
+             "PDF, again without needing LaTeX",
+    )
+    parser.add_argument(
         "--print-alt",
         action="store_true",
         help="also print the generated alt text to stdout",
@@ -123,6 +165,21 @@ def build_parser() -> argparse.ArgumentParser:
         version=f"%(prog)s {__version__}",
     )
     return parser
+
+
+def _netlist_formats(parser: argparse.ArgumentParser,
+                     value: str) -> tuple[str, ...]:
+    """Parse --netlist into a tuple, exiting with usage on a bad name."""
+    if not value.strip():
+        return ()
+    names = tuple(part.strip().lower() for part in value.split(",")
+                  if part.strip())
+    for name in names:
+        if name not in pipeline.NETLIST_FORMATS:
+            parser.error(
+                f"unknown netlist format '{name}'; choose from "
+                + ", ".join(pipeline.NETLIST_FORMATS))
+    return names
 
 
 def _default_output_dir(input_path: str) -> str:
@@ -148,6 +205,8 @@ def main(argv: list[str] | None = None) -> int:
     parser = build_parser()
     args = parser.parse_args(argv)
 
+    netlist_formats = _netlist_formats(parser, args.netlist)
+
     output_dir = args.output_dir or _default_output_dir(args.input)
     options = pipeline.PipelineOptions(
         input_path=args.input,
@@ -159,6 +218,11 @@ def main(argv: list[str] | None = None) -> int:
         export_format=args.format,
         detail_level="detailed" if args.check else args.detail,
         junction_dots=not args.no_junction_dots,
+        show_loops=args.loops,
+        show_units=args.units,
+        netlist_formats=netlist_formats,
+        svg_preview=args.svg_preview,
+        pdf_preview=args.pdf_preview,
         dry_run=args.check,
     )
 

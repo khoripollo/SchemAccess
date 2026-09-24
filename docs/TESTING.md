@@ -22,11 +22,14 @@ external tools installed.
 
 ## Test data
 
-The fixture corpus lives in `tests/fixtures/` — seventeen KiCad schematics
-(fifteen valid ones listed in the manifest, plus `malformed.kicad_sch` and
+The fixture corpus lives in `tests/fixtures/` — 29 KiCad schematics
+(27 valid ones listed in the manifest, plus `malformed.kicad_sch` and
 `not_a_schematic.kicad_sch` for the error paths). Most are hand-built;
-`big_200.kicad_sch` is produced by `gen_big.py`, and a few are real KiCad 10
-files kept as regressions. `manifest.json` records the expected component count,
+`big_200.kicad_sch` is produced by `gen_big.py` and the ten `loops_*`
+circuits by `gen_loops.py`, a few are real KiCad 10 files kept as
+regressions, `earth_blank_value.kicad_sch` is a user's file kept verbatim,
+and `power_symbols.kicad_sch` carries every ground in KiCad 10's power
+library. `manifest.json` records the expected component count,
 net count, ground presence and power-symbol count for every valid fixture
 exactly as `netbuilder.build_graph` reports them. See
 `tests/fixtures/README.md` for the full catalogue (reference RC divider,
@@ -106,3 +109,22 @@ the intended suite checks it everywhere it matters:
 - Renderer tests that need the toolchain should skip (not fail) when
   `Renderer().available()` is false, in addition to carrying the `slow`
   marker.
+
+## Netlist and SVG-preview tests
+
+Two modules were added after the matrix above was written, and their
+tests follow the same convention — parametrised over every valid fixture,
+asserting behaviour rather than exact strings.
+
+| File | What it proves |
+| --- | --- |
+| `tests/test_netlist.py` | Every SPICE device line is re-read and its nodes compared against the circuit graph (NET-1), so a deck can never wire a component to the wrong net. Nothing is dropped silently: a component is either a device line or a comment *plus* a note (NET-2). Ground is node `0` and only ground is (NET-3). Diode and source polarity follow the pin names, not pin order (NET-6, NET-7). The KiCad export round-trips every `(reference, pin)` pair with consecutive net codes (NET-9 … NET-11). The CSV has exactly one row per connected pin, with embedded commas quoted (NET-14, NET-15). All four formats are byte-deterministic (DET-1). |
+| `tests/test_pdfwriter.py` | The file is a structurally valid PDF: header, one page, a cross-reference table whose every offset lands on its own object, a `/Length` that matches the stream, and a `%%EOF` (PDF-1). The page is the drawing's bounding box in points (PDF-2). Every wire endpoint is painted, so the PDF cannot quietly lose part of the circuit (PDF-3). Path operators are balanced and every path is painted (PDF-4). Visible references reach the page as text, and the ohm sign switches to the Symbol font because Helvetica has no Omega (PDF-5) — the test that caught it being dropped. Output is byte-deterministic (DET-1). |
+| `tests/test_loops.py` | The textbook networks get exactly the loops a person would draw, parts listed in the loop's direction, numbered row by row (LOOP-1); a second source turns its loop the other way, a source in a shared branch splits its current, a current source follows its arrow. The loops found always number branches - nodes + pieces, worked out from the netlist alone (LOOP-2). Every circuit loops cannot honestly be drawn on is refused with a reason (LOOP-3). Each arrow sits inside its window, clear of every wire, part and other arrow (LOOP-4). All outputs are byte-identical with the option off, and carry the loops with it on, including a real pdflatex compile (LOOP-5). CLI, pipeline report and warning, GUI option, fixture generator (LOOP-6). The fonts the website's in-browser pdfTeX needs for the labels ship with it (LOOP-7). An independent nodal solve, fitted to loop currents, never finds a drawn loop running backwards (LOOP-8). |
+| `tests/test_power.py` | A user's file with an emptied Earth Value converts one-to-one: ground net, ground drawing, SPICE node `0`, no `~` anywhere, and the emptied name is reported (PWR-1). All twelve grounds of KiCad's power library are ground, named or emptied (PWR-2). Emptied symbols never short together and join their named twins (PWR-3). A `lib_name` alias still finds its definition (PWR-4). SPICE gives each net one node name that no other net shares, case-blind, and notes when there is no ground to simulate against (PWR-5). The report lists what each power symbol was read as (PWR-6). |
+| `tests/test_svgpreview.py` | The output parses as XML and its `viewBox` contains every mark drawn (SVG-1). One polyline per wire, no wires invented (SVG-2). Every visible reference designator and every net label is drawn (SVG-3). Every component leaves a mark at each of its own pin positions, whatever symbol was chosen for it (SVG-4) — this is what makes the preview safe to trust. The standalone form carries its own colours; the embedded form inherits the page's (SVG-5). Output is byte-deterministic (DET-1). |
+
+The browser front end under `web/` has no separate suite: it runs the
+same library, so `test_netlist.py` and `test_svgpreview.py` cover what it
+shows. `web/driver.py` is exercised by hand with
+`python -m http.server --directory web`.

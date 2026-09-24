@@ -20,34 +20,41 @@ component mappings.
                       |   netbuilder.py    |   SchematicDocument -> CircuitGraph
                       +--------------------+   (circuit layer)
                                  |
-              +------------------+------------------+
-              |                                     |
-              v                                     v
-   +--------------------+                +--------------------+
-   |    analyzer.py     |                |   circuitikz.py    |
-   | structure detection|                |  graph -> LaTeX    |
-   +--------------------+                +--------------------+
-              |                                     |
-              v                                     v
-   +--------------------+                +--------------------+
-   |    alttext.py      |                |    renderer.py     |
-   | graph -> prose     |                | .tex -> PDF/SVG/PNG|
-   +--------------------+                +--------------------+
-              |                                     |
-              +------------------+------------------+
+        +----------------+-------+--------+----------------+
+        |                |                |                |
+        v                v                v                v
+ +-------------+  +--------------+  +-------------+  +--------------+
+ | analyzer.py |  | circuitikz.py|  | netlist.py  |  |svgpreview.py |
+ | structure   |  | graph->LaTeX |  | graph->     |  | graph->SVG   |
+ | detection   |  |              |  | SPICE/KiCad |  |      |       |
+ +-------------+  +--------------+  +-------------+  +------|-------+
+                                                            v
+                                                     +--------------+
+                                                     | pdfwriter.py |
+                                                     | same canvas, |
+                                                     | vector PDF   |
+                                                     +--------------+
+        |                |                |                |
+        v                v                |                |
+ +-------------+  +--------------+        |                |
+ | alttext.py  |  | renderer.py  |        |                |
+ | graph->prose|  |.tex->PDF/SVG |        |                |
+ +-------------+  +--------------+        |                |
+        |                |                |                |
+        +----------------+-------+--------+----------------+
                                  |
                                  v
                       +--------------------+
                       |    pipeline.py     |   single entry point
                       +--------------------+
                                  |
-                    +------------+------------+
-                    |                         |
-                    v                         v
-          +------------------+      +------------------+
-          |     cli.py       |      |  gui/ (PySide6)  |
-          | 'schemaccess'    |      | 'schemaccess-gui'|
-          +------------------+      +------------------+
+                 +---------------+---------------+
+                 |               |               |
+                 v               v               v
+        +--------------+ +--------------+ +----------------+
+        |   cli.py     | |gui/ (PySide6)| | web/driver.py  |
+        |'schemaccess' | |'...-gui'     | | (Pyodide)      |
+        +--------------+ +--------------+ +----------------+
 
  model.py defines the shared dataclasses used by every stage.
 ```
@@ -55,7 +62,11 @@ component mappings.
 ## Data flow
 
 ```
-kicad_parser -> netbuilder -> analyzer -> alttext / circuitikz -> renderer -> pipeline -> gui / cli
+kicad_parser -> netbuilder -> analyzer -> alttext
+                            \-> circuitikz -> renderer
+                            \-> netlist
+                            \-> svgpreview
+                                     -> pipeline -> gui / cli / web
 ```
 
 1. **`sexpr.py`** — a minimal, dependency-free S-expression reader. KiCad 6+
@@ -82,6 +93,14 @@ kicad_parser -> netbuilder -> analyzer -> alttext / circuitikz -> renderer -> pi
    one component per reference. `node_names(graph)` additionally provides
    the human-friendly node names used by the alt text ("ground",
    "the +5V rail", "node 1", "node 3 (VOUT)").
+
+   The two questions every power symbol raises — which net does it name,
+   and is it ground? — are answered once, in **`power.py`**, and the net
+   builder, `circuitikz.py` and `svgpreview.py` all ask it, so a symbol
+   can never be ground to one and a supply to another. The name is the
+   Value, except that an emptied Value (KiCad writes `~`) falls back to the
+   library name. A symbol is ground when its name or its library symbol is
+   a ground name, which covers all twelve grounds in KiCad's power library.
 
 4. **`analyzer.py`** — works purely on the electrical graph (no geometry)
    and detects structures: parallel groups, series chains, voltage dividers,
@@ -110,19 +129,60 @@ kicad_parser -> netbuilder -> analyzer -> alttext / circuitikz -> renderer -> pi
    gates and op-amps become circuitikz nodes, and everything else becomes a
    labelled rectangle whose pin stubs land on the true pin positions.
 
-7. **`renderer.py`** — drives the local LaTeX toolchain found on `PATH`:
+7. **`netlist.py`** — `generate(graph, fmt)` formats the same electrical
+   graph as a SPICE deck, a KiCad `.net` S-expression, a readable net
+   table or a CSV pin table. It performs no analysis of its own and
+   never touches the filesystem. Devices SPICE cannot express without
+   information the schematic does not carry (switch controls, a
+   controlled source's control nodes, a transformer's inductances) are
+   emitted as commented templates with their nodes filled in, and every
+   such decision comes back in `NetlistResult.notes` — a component is
+   never silently dropped or guessed at.
+
+8. **`svgpreview.py`** — `generate(graph)` draws the circuit as a
+   standalone SVG straight from the schematic's geometry, with no LaTeX
+   in the loop. SVG's Y axis points down and so does KiCad's, so the
+   drawing works in millimetres directly: the `viewBox` *is* the
+   schematic's bounding box. It is deliberately a preview rather than a
+   second renderer — same topology, positions and labels as the
+   CircuiTikZ output, but the symbol artwork is drawn here, so it will
+   not match a compiled PDF stroke for stroke.
+
+   **`loops.py`** (used by `circuitikz`, `svgpreview`, `alttext` and the
+   pipeline when loop currents are asked for) finds the loop currents of
+   mesh analysis on the drawing itself: wires and two-terminal parts are
+   read as a plane graph and its bounded faces are the windows, each
+   given a loop i1, i2, ... placed where it has the most room. Each loop
+   turns the way its current flows -- from a DC solve of the mesh
+   equations when the circuit allows one, otherwise from the sources'
+   polarity -- and a circuit the loops cannot honestly be drawn on (more
+   than four loops, multi-pin parts, crossings, label joins, undecidable
+   directions) gets none, with a reason. As a failsafe the windows must
+   number exactly branches - nodes + pieces.
+
+9. **`pdfwriter.py`** — writes the same drawing as a vector PDF, with no
+   LaTeX and no third-party package: a few hundred lines of the PDF
+   imaging model over the standard library. It does not re-implement the
+   drawing; `svgpreview.draw()` accepts any object with the canvas method
+   set, and `PdfCanvas` is handed to the very same routines, so the two
+   back ends cannot drift apart. PDF's Y axis points up and its unit is
+   the point, so the content stream opens with one transform that makes
+   user space *be* schematic millimetres and the drawing code passes its
+   numbers through untouched.
+
+10. **`renderer.py`** — drives the local LaTeX toolchain found on `PATH`:
    `pdflatex` for PDF (with MiKTeX's `--enable-installer` when applicable),
    then `pdftocairo` (preferred) or `dvisvgm` for SVG and `pdftocairo` or
    `pdftoppm` for 300 dpi PNG. All tools are invoked with explicit argument
    lists (never `shell=True`) and a hard timeout; compiled PDFs are cached
    by `(tex path, mtime)` so rendering several formats compiles only once.
 
-8. **`pipeline.py`** — `run_pipeline(PipelineOptions, progress=...)` is the
+11. **`pipeline.py`** — `run_pipeline(PipelineOptions, progress=...)` is the
    single entry point used by both front ends: parse → build graph → write
    alt text → write `.tex` → render requested formats. It never raises for
    input problems; callers check `result.errors` / `result.warnings`.
 
-9. **`cli.py` / `gui/`** — thin front ends over the pipeline. The CLI maps
+12. **`cli.py` / `gui/` / `web/`** — thin front ends over the pipeline. The CLI maps
    arguments to `PipelineOptions` and streams progress to stdout; the GUI
    runs the pipeline on a `QThread` worker and mirrors progress into an
    accessible log and the status bar.
@@ -210,7 +270,35 @@ Identical inputs always produce byte-identical outputs. Concretely:
 
 The only non-deterministic artefacts are the ones produced by external
 tools (PDF/SVG/PNG binaries may embed tool-version metadata); everything
-SchemAccess itself writes is reproducible.
+SchemAccess itself writes is reproducible. That includes the netlists
+(no date or tool-version stamp is written into the KiCad export, and
+device lines follow `sorted_components`) and the SVG preview (wires in
+document order, components by reference, coordinates formatted with the
+same fixed 3-decimal rule).
+
+## Running in a browser
+
+Nothing in `src/schemaccess` depends on a third-party package, and the
+only stdlib module that reaches outside the process is `subprocess`, used
+by `renderer.py` alone. That is what makes the browser build possible:
+the library runs unmodified in [Pyodide](https://pyodide.org), and the web
+front end simply does not import `renderer`.
+
+```
+web/build.py    zips src/schemaccess + web/driver.py -> web/schemaccess.zip
+web/driver.py   root_sheet() / convert() / build_zip(), the only
+                browser-specific module; calls the pipeline's stages
+                directly because pipeline.run_pipeline writes files and
+                shells out to LaTeX
+web/app.js      moves dropped files into Pyodide's filesystem, calls
+                convert(), renders the JSON it returns
+```
+
+`driver.convert()` returns one JSON blob holding the drawing, the LaTeX,
+all four netlists, all three description lengths, the statistics and every
+warning — the same values the desktop `ConversionStats` reports, produced
+by the same stages in the same order. Re-run `python web/build.py` after
+any change under `src/schemaccess`; see [web/README.md](web/README.md).
 
 ## Extending: adding a new component mapping
 

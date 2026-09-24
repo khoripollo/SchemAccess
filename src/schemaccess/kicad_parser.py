@@ -275,6 +275,10 @@ def _parse_symbol_instance(node: list,
         angle=float(at[3]) if len(at) > 3 else 0.0,
     )
 
+    lib_name = sexpr.child(node, "lib_name")
+    if lib_name and len(lib_name) > 1:
+        inst.lib_name = str(lib_name[1])
+
     mirror = sexpr.child(node, "mirror")
     if mirror and len(mirror) > 1:
         inst.mirror = str(mirror[1])

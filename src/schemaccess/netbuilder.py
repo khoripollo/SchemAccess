@@ -23,11 +23,9 @@ from typing import Dict, List, Optional, Set, Tuple
 from .model import (CircuitGraph, Component, ComponentType, Label, LabelKind,
                     Net, NetKind, PinConnection, Point, SchematicDocument,
                     SymbolInstance, classify, snap)
+from .power import is_blank, is_ground, net_name
 
 _EPS = 1e-3  # mm tolerance for point-on-segment tests
-
-_GROUND_NAMES = {"gnd", "gnda", "gndd", "gndref", "gndpwr", "agnd", "dgnd",
-                 "earth", "0", "gnds", "vss"}
 
 
 # ---------------------------------------------------------------------------
@@ -143,15 +141,22 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
 
     # Names contributed by power symbols.
     power_name_at: Dict[Point, str] = {}
+    ground_at: Set[Point] = set()
     for inst in doc.symbols:
         lib = doc.lib_symbol_for(inst)
         if lib is None or not (lib.is_power or inst.reference.startswith("#")):
             continue
+        name = net_name(inst)
+        if is_blank(inst) and not inst.reference.startswith("#FLG"):
+            graph.warnings.append(
+                f"Power symbol {inst.reference} has an empty name in the "
+                f"schematic; it was read as {name}.")
         for pin in lib.pins_for_unit(inst.unit):
             pos = inst.pin_position(pin)
-            name = inst.value or inst.lib_id.split(":", 1)[-1]
             if name and not inst.reference.startswith("#FLG"):
                 power_name_at[pos] = name
+                if is_ground(inst, lib):
+                    ground_at.add(pos)
 
     label_at: Dict[Point, List[Label]] = defaultdict(list)
     for lbl in doc.labels:
@@ -205,7 +210,7 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
                 {LabelKind.GLOBAL: glob, LabelKind.HIERARCHICAL: hier,
                  LabelKind.LOCAL: local}[lbl.kind].append(lbl.text)
         power_names = sorted(set(power))
-        ground = [n for n in power_names if n.lower() in _GROUND_NAMES]
+        ground = sorted({power_name_at[p] for p in points if p in ground_at})
         if ground:
             return NetKind.GROUND, ground[0]
         if power:
@@ -269,12 +274,13 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
                 body_shape=lib.body_shape,
             )
             graph.components[inst.reference] = comp
+        comp.unit_positions.setdefault(inst.unit, snap(inst.x, inst.y))
         for pin in lib.pins_for_unit(inst.unit):
             pos = inst.pin_position(pin)
             net_id = root_to_net.get(uf.find(pos), -1)
             comp.pins[pin.number] = PinConnection(
                 number=pin.number, name=pin.name, position=pos,
-                net_id=net_id, etype=pin.etype)
+                net_id=net_id, etype=pin.etype, unit=inst.unit)
         # Polarity dots travel with the placed symbol, so they follow its
         # rotation and mirroring like the pins do.
         for dot in lib.dots_for_unit(inst.unit):

@@ -1,0 +1,135 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>KiCad to Netlist</title>
+<meta name="description" content="Converts a KiCad .kicad_sch schematic into netlists, CircuiTikZ LaTeX, a PDF drawing and a screen-reader description.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:ital,wght@0,400;0,700;1,400&family=IBM+Plex+Mono:wght@400;500&display=swap">
+<link rel="stylesheet" href="styles.css">
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24'><text y='19' font-size='19'>&#128208;</text></svg>">
+</head>
+<body>
+
+<div class="app">
+
+  <div class="brandbar" aria-hidden="true"><span></span><span></span></div>
+
+  <header class="masthead">
+    <div class="masthead-left">
+      <span class="wordmark">KiCad to Netlist</span>
+      <span class="tagline" id="tagline" hidden></span>
+      <span class="filechip" id="filechip" hidden>
+        <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M14 3H7a2 2 0 0 0-2 2v14a2 2 0 0 0 2 2h10a2 2 0 0 0 2-2V8z"></path><path d="M14 3v5h5"></path></svg>
+        <span class="name" id="filename"></span>
+      </span>
+    </div>
+    <div class="masthead-right">
+      <button class="btn btn-small" id="reset" hidden>Convert another file</button>
+    </div>
+  </header>
+
+  <main class="upload" id="upload-view">
+    <div class="upload-inner">
+      <div class="dropzone" id="dropzone">
+        <div class="dropzone-row">
+          <button class="btn btn-primary" id="choose">Choose a schematic</button>
+          <span class="dropzone-hint">or drag one onto this page <span class="mono filetype">.kicad_sch</span></span>
+          <input type="file" id="file-input" accept=".kicad_sch,.zip" multiple class="visually-hidden">
+        </div>
+      </div>
+
+      <div class="boot" id="boot" role="status" aria-live="polite">
+        <span class="spinner" id="boot-spinner" aria-hidden="true"></span>
+        <span id="boot-text">Loading…</span>
+      </div>
+    </div>
+  </main>
+
+  <div class="workspace-view" id="workspace-view" hidden>
+
+    <div class="statusbar" id="statusbar" role="status" aria-live="polite">
+      <div class="statusbar-left">
+        <span id="status-icon"></span>
+        <span id="status-text"></span>
+      </div>
+      <div class="statusbar-right">
+        <span class="notes-count" id="notes-count" hidden>
+          <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 9v4"></path><path d="M12 17h.01"></path><path d="M10.3 3.9 1.8 18a2 2 0 0 0 1.7 3h17a2 2 0 0 0 1.7-3L13.7 3.9a2 2 0 0 0-3.4 0z"></path></svg>
+          <span id="notes-count-text"></span>
+        </span>
+        <a href="#" id="open-report">Open the full report</a>
+      </div>
+    </div>
+
+    <div class="workspace">
+      <div class="panel-column">
+        <div class="tabs" role="tablist" aria-label="Outputs">
+          <button role="tab" id="tab-preview" data-tab="preview" aria-selected="true" aria-controls="panel">Preview</button>
+          <button role="tab" id="tab-latex" data-tab="latex" aria-selected="false" aria-controls="panel">LaTeX</button>
+          <button role="tab" id="tab-netlist" data-tab="netlist" aria-selected="false" aria-controls="panel">Netlist</button>
+          <button role="tab" id="tab-description" data-tab="description" aria-selected="false" aria-controls="panel">Description</button>
+          <button role="tab" id="tab-report" data-tab="report" aria-selected="false" aria-controls="panel">Report</button>
+        </div>
+        <div class="panel" id="panel" role="tabpanel" aria-labelledby="tab-preview" tabindex="0"></div>
+      </div>
+
+      <aside class="rail" aria-label="Options and downloads">
+        <div class="rail-card">
+          <div class="rail-body">
+            <label class="check">
+              <input type="checkbox" id="junction-dots" checked>
+              <span>Show junction dots</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="show-loops" aria-describedby="loops-note">
+              <span>Show loop currents (i<sub>1</sub>, i<sub>2</sub>, …)</span>
+            </label>
+            <p id="loops-note" aria-live="polite" hidden></p>
+            <label class="check">
+              <input type="checkbox" id="show-units">
+              <span>Show units on values (1 H, 22 nF)</span>
+            </label>
+          </div>
+        </div>
+
+        <div class="rail-card">
+          <div class="rail-head">
+            <h2>Downloads</h2>
+            <span id="file-count"></span>
+          </div>
+          <div id="file-list"></div>
+          <div class="rail-foot">
+            <button class="btn btn-primary btn-block" id="download-all">
+              <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M12 3v13"></path><path d="M7 12l5 5 5-5"></path><path d="M4 21h16"></path></svg>
+              Download all as a .zip
+            </button>
+          </div>
+        </div>
+
+        <div class="rail-card">
+          <div class="rail-body">
+            <h2>Compile the LaTeX</h2>
+            <p>The <span class="mono">.tex</span> file needs the <span class="mono">circuitikz</span> package. Send it to Overleaf in one click, or run <span class="mono">pdflatex</span> yourself.</p>
+            <button class="btn btn-block" id="overleaf">
+              Open this drawing in Overleaf
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M7 17L17 7"></path><path d="M8 7h9v9"></path></svg>
+            </button>
+          </div>
+        </div>
+      </aside>
+    </div>
+  </div>
+
+</div>
+
+<form id="overleaf-form" action="https://www.overleaf.com/docs" method="post" target="_blank" rel="noopener" class="visually-hidden" aria-hidden="true">
+  <input type="hidden" name="snip" id="overleaf-snip">
+  <input type="hidden" name="engine" value="pdflatex">
+</form>
+
+<script src="app.js" type="module"></script>
+</body>
+</html>

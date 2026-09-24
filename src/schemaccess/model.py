@@ -121,6 +121,7 @@ class SymbolInstance:
     hidden_properties: Set[str] = field(default_factory=set)
     dnp: bool = False
     on_sheet: str = ""        # sheet path name, '' for root
+    lib_name: str = ""
 
     def shows(self, key: str) -> bool:
         """True when property *key* is visible on the KiCad schematic."""
@@ -211,6 +212,12 @@ class SchematicDocument:
     warnings: List[str] = field(default_factory=list)
 
     def lib_symbol_for(self, inst: SymbolInstance) -> Optional[LibSymbol]:
+        if inst.lib_name:
+            nickname = inst.lib_id.split(":", 1)[0] if ":" in inst.lib_id \
+                else ""
+            for key in (inst.lib_name, f"{nickname}:{inst.lib_name}"):
+                if key in self.lib_symbols:
+                    return self.lib_symbols[key]
         return self.lib_symbols.get(inst.lib_id)
 
 
@@ -311,6 +318,11 @@ class PinConnection:
     position: Point
     net_id: int = -1
     etype: str = "passive"
+    #: Which placed unit of a multi-unit symbol this pin belongs to.  A
+    #: dual op amp is one *component* (one physical chip, one line in the
+    #: netlist) but two *drawn symbols*, and only this tells them apart.
+    #: 0 means the symbol has no units worth distinguishing.
+    unit: int = 0
 
 
 @dataclass
@@ -336,6 +348,10 @@ class Component:
     #: Polarity / winding-phase dots carried by the symbol, as absolute
     #: schematic positions with their radius in millimetres.
     dots: List[Tuple[Point, float]] = field(default_factory=list)
+    #: Where each placed unit of a multi-unit symbol sits.  ``position``
+    #: is only the first one, which is all a netlist needs; a drawing
+    #: needs every unit or it silently omits half a dual op amp.
+    unit_positions: Dict[int, Point] = field(default_factory=dict)
 
     def shows(self, key: str) -> bool:
         """True when property *key* is visible on the KiCad schematic."""

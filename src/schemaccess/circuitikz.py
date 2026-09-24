@@ -19,10 +19,13 @@ Design goals:
 
 from __future__ import annotations
 
+import math
 import os
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
+from . import power
+from .loops import find_meshes
 from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
                     PinConnection, Point, SchematicDocument)
 
@@ -160,8 +163,6 @@ _GATE_STYLES: Dict[ComponentType, str] = {
     ComponentType.BUFFER: "buffer port",
 }
 
-_GROUND_NAMES = {"gnd", "gnda", "gndd", "gndref", "gndpwr", "agnd", "dgnd",
-                 "earth", "0", "gnds", "vss"}
 _NEGATIVE_RAIL_HINTS = ("VEE", "VSS", "V-", "-V")
 
 # ---------------------------------------------------------------------------
@@ -565,13 +566,27 @@ def _emit_gate(comp: Component, tr: _Transform, warnings: List[str],
 
 
 def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
-                dangling: Set[int]) -> List[str]:
-    name = _node_name(comp.ref)
-    cx, cy = tr.point(comp.position)
+                dangling: Set[int],
+                unit: Optional[int] = None) -> List[str]:
+    """Emit one op-amp body.
+
+    *unit* selects one placed unit of a multi-unit part.  A dual op amp is
+    a single component but two drawn amplifiers, so drawing it as one body
+    puts a triangle on one half of the chip and loses the other entirely.
+    """
+    if unit is None:
+        pins = comp.pins
+        centre = comp.position
+        name = _node_name(comp.ref)
+    else:
+        pins = {n: p for n, p in comp.pins.items() if p.unit == unit}
+        centre = comp.unit_positions.get(unit, comp.position)
+        name = _node_name(f"{comp.ref}u{unit}")
+    cx, cy = tr.point(centre)
     roles = _sim_pin_roles(comp)
     matched: Dict[str, str] = {}
-    for number in sorted(comp.pins, key=_pin_sort_key):
-        pin = comp.pins[number]
+    for number in sorted(pins, key=_pin_sort_key):
+        pin = pins[number]
         pname = pin.name.strip().lower()
         role = roles.get(number, "")
         if (pname in ("-", "in-", "inn") or role in ("-", "in-")) \
@@ -600,14 +615,14 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
     out_no = next((n for n, a in matched.items() if a == "out"), None)
     plus_y = minus_y = None
     if plus_no is not None and minus_no is not None:
-        plus_y = tr.point(comp.pins[plus_no].position)[1]
-        minus_y = tr.point(comp.pins[minus_no].position)[1]
+        plus_y = tr.point(pins[plus_no].position)[1]
+        minus_y = tr.point(pins[minus_no].position)[1]
         if plus_y > minus_y:
             node_style = "op amp, noinv input up"
     # Supply anchors likewise follow the actual pin geometry.
     for number, anchor in list(matched.items()):
         if anchor in ("up", "down"):
-            pin_y = tr.point(comp.pins[number].position)[1]
+            pin_y = tr.point(pins[number].position)[1]
             matched[number] = "up" if pin_y >= cy else "down"
 
     # circuitikz's own 'op amp' shape, scaled UNIFORMLY (never stretched,
@@ -617,9 +632,9 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
     # exactly as in a hand-written circuitikz figure.
     mirrored = False
     if out_no is not None and plus_no is not None and minus_no is not None:
-        out_x = tr.point(comp.pins[out_no].position)[0]
-        in_x = (tr.point(comp.pins[plus_no].position)[0]
-                + tr.point(comp.pins[minus_no].position)[0]) / 2.0
+        out_x = tr.point(pins[out_no].position)[0]
+        in_x = (tr.point(pins[plus_no].position)[0]
+                + tr.point(pins[minus_no].position)[0]) / 2.0
         mirrored = out_x < in_x
 
     scale = OPAMP_SCALE
@@ -662,12 +677,12 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
 
     # Put the label clear of the body and of anything wired above it.
     label_y = max([node_y + 0.98 * scale]
-                  + [tr.point(p.position)[1] for p in comp.pins.values()
+                  + [tr.point(p.position)[1] for p in pins.values()
                      if p.net_id >= 0 and p.net_id not in dangling])
     lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, node_y)} {{}};"]
     lines.extend(_label_node(comp, cx, label_y + 0.25))
-    for number in sorted(comp.pins, key=_pin_sort_key):
-        pin = comp.pins[number]
+    for number in sorted(pins, key=_pin_sort_key):
+        pin = pins[number]
         anchor = matched.get(number)
         unconnected = pin.net_id < 0 or pin.net_id in dangling
         if anchor is None:
@@ -957,7 +972,13 @@ def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
                     dangling: Set[int],
                     fallbacks: Optional[Set[str]] = None) -> List[str]:
     if comp.ctype == ComponentType.OPAMP and len(comp.pins) >= 3:
-        return _emit_opamp(comp, tr, warnings, dangling)
+        units = sorted({p.unit for p in comp.pins.values()})
+        if len(units) <= 1:
+            return _emit_opamp(comp, tr, warnings, dangling)
+        lines: List[str] = []
+        for unit in units:
+            lines.extend(_emit_opamp(comp, tr, warnings, dangling, unit))
+        return lines
     if comp.ctype in (ComponentType.NJFET, ComponentType.PJFET) \
             and len(comp.pins) >= 3:
         return _emit_jfet(comp, tr, warnings, fallbacks)
@@ -995,7 +1016,7 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
             continue
         if inst.reference.startswith("#FLG"):
             continue  # ERC power flags have no graphic meaning
-        name = inst.value or inst.lib_id.split(":", 1)[-1]
+        name = power.net_name(inst)
         # KiCad can hide a power symbol's Value field; then the rail is
         # drawn without its name, exactly as the schematic shows it.
         shown = "" if "Value" in inst.hidden_properties else _escape(name)
@@ -1003,7 +1024,7 @@ def _emit_power_symbols(doc: SchematicDocument, tr: _Transform,
             pos = inst.pin_position(pin)
             net = net_at.get(pos)
             is_ground = (net.kind == NetKind.GROUND if net is not None
-                         else name.strip().lower() in _GROUND_NAMES)
+                         else power.is_ground(inst, lib))
             if is_ground:
                 lines.append(f"\\draw {tr.coord(pos)} node[ground]{{}};")
             elif _is_positive_rail(name):
@@ -1060,12 +1081,35 @@ def _emit_labels(doc: SchematicDocument, tr: _Transform) -> List[str]:
             for lbl in doc.labels]
 
 
+_LOOP_COLOUR = "blue!70!black"
+_LOOP_ARCS = {True: (120, -150), False: (60, 330)}
+
+
+def _emit_loops(graph: CircuitGraph, tr: _Transform) -> List[str]:
+    found = find_meshes(graph)
+    lines: List[str] = []
+    for mesh in found.meshes if found.ok else ():
+        cx, cy = tr.point(mesh.centre)
+        radius = round(mesh.radius * SCALE, 3)
+        start, end = _LOOP_ARCS[mesh.clockwise]
+        sx = cx + radius * math.cos(math.radians(start))
+        sy = cy + radius * math.sin(math.radians(start))
+        lines.append(
+            f"\\draw[{_LOOP_COLOUR}, thick, -{{Latex[length=2.2mm, bend]}}] "
+            f"{_xy(sx, sy)} arc[start angle={start}, "
+            f"end angle={end}, radius={_fmt(radius)}];")
+        lines.append(f"\\node[{_LOOP_COLOUR}] at {_xy(cx, cy)} "
+                     f"{{$i_{{{mesh.index}}}$}};")
+    return lines
+
+
 # ---------------------------------------------------------------------------
 # Public API
 # ---------------------------------------------------------------------------
 
 def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
-                  fallbacks: Optional[Set[str]] = None) -> str:
+                  fallbacks: Optional[Set[str]] = None,
+                  loops: bool = False) -> str:
     """Return only the ``\\begin{circuitikz}...\\end{circuitikz}`` body.
 
     Set *junction_dots* to False to omit the filled dots KiCad draws where
@@ -1144,6 +1188,11 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
         lines.append("% Net labels")
         lines.extend(label_lines)
 
+    loop_lines = _emit_loops(graph, tr) if loops else []
+    if loop_lines:
+        lines.append("% Loop currents, each taken clockwise")
+        lines.extend(loop_lines)
+
     lines.append("\\end{circuitikz}")
 
     for message in warnings:
@@ -1153,7 +1202,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
 
 
 def generate(graph: CircuitGraph, *, junction_dots: bool = True,
-             fallbacks: Optional[Set[str]] = None) -> str:
+             fallbacks: Optional[Set[str]] = None,
+             loops: bool = False) -> str:
     """Return a complete standalone LaTeX document (circuitikz) for *graph*.
 
     The document compiles with ``pdflatex`` without modification, preserves
@@ -1175,7 +1225,7 @@ def generate(graph: CircuitGraph, *, junction_dots: bool = True,
         r"\usepackage[RPvoltages]{circuitikz}",
         r"\begin{document}",
         generate_body(graph, junction_dots=junction_dots,
-                      fallbacks=fallbacks),
+                      fallbacks=fallbacks, loops=loops),
         r"\end{document}",
         "",
     ])

@@ -30,6 +30,19 @@ labels/rails.
 | `not_a_schematic.kicad_sch` | Valid s-expr, but top tag `kicad_pcb` | Must raise `KiCadParseError` (wrong document type path) |
 | `big_200.kicad_sch` | 100-stage RC ladder: 200 components, 100 GND symbols, 102 nets | Performance / scaling; regenerate with `python gen_big.py` (deterministic, byte-identical output) |
 | `gen_big.py` | — | Generator script for `big_200.kicad_sch` |
+| `earth_blank_value.kicad_sch` | V1 5V across R1 100k, bottom wire to `power:Earth` | A user's KiCad 9 file, verbatim: the Earth's Value was emptied (KiCad writes `~`), which once named the net `~`, drew a vcc arrow and split the SPICE ground; also a text note |
+| `power_symbols.kicad_sch` | 20 resistors hanging off power symbols | Every ground in KiCad 10's power library (symbol definitions copied from KiCad 10.0), emptied Values (`~` and `""`), grounds and supplies turned sideways or hanging down, a blanked +5V joining a named one, and a `lib_name` alias (R99) |
+| `loops_two.kicad_sch` | The textbook two-loop network: V1, R1/R3 along the top, R2 and R4 upright | Loop currents (`--loops`): i1 through V1, R1, R2 and i2 through R2, R3, R4, both clockwise, sharing R2 |
+| `loops_three.kicad_sch` | The same ladder, three windows | Three loop currents, numbered left to right |
+| `loops_grid.kicad_sch` | Four windows in a 2 x 2 grid round a four-way junction | Loop numbering row by row (i1, i2 on top; i3, i4 below), a bare branch and a bare rail |
+| `loops_seven.kicad_sch` | A seven-window ladder | One loop past the limit: no loop currents drawn, and the report says why |
+| `loops_crossing.kicad_sch` | The two-loop network plus a stray wire crossing a branch without a junction | A drawing that is not a flat map of its circuit: no loop currents drawn |
+| `loops_scattered_ground.kicad_sch` | The two-loop network closed by GND symbols not in one row | Loops that cannot be traced on the page: none drawn (GND symbols *in* a row, as in `rc_divider`, are read as a rail) |
+| `loops_two_sources.kicad_sch` | V1 down the left, V2 down the right, both + on top | A second source turns its loop the other way: i1 clockwise, i2 counterclockwise, i1 + i2 down R2 |
+| `loops_middle_source.kicad_sch` | V1 in the shared middle branch | The source's current splits: i1 counterclockwise, i2 clockwise |
+| `loops_current_source.kicad_sch` | A 2 mA current source down the left | Loops follow SPICE's current-source direction (+ to - through it): both counterclockwise |
+| `loops_undecidable.kicad_sch` | Opposing V1 and V2 with a diode along the middle window | Directions that cannot be worked out: no loops, and the reason names D1 |
+| `gen_loops.py` | — | Generator script for the ten `loops_*` fixtures (deterministic, byte-identical output) |
 
 Notes:
 

@@ -21,7 +21,7 @@ from conftest import LATEX_AVAILABLE, MANIFEST, VALID_FIXTURES
 from schemaccess import circuitikz
 from schemaccess.circuitikz import _format_value  # value oracle for COM-2
 from schemaccess.model import CircuitGraph, SchematicDocument
-from schemaccess.netbuilder import _GROUND_NAMES
+from schemaccess.power import is_ground_name
 from schemaccess.renderer import Renderer
 
 Point = Tuple[float, float]
@@ -125,8 +125,8 @@ def _ground_symbol_count(doc: SchematicDocument) -> int:
             continue
         if inst.reference.startswith("#FLG"):
             continue
-        rail = (inst.value or inst.lib_id.split(":", 1)[-1]).strip().lower()
-        if rail in _GROUND_NAMES:
+        symbol = inst.lib_id.split(":", 1)[-1]
+        if is_ground_name(inst.value) or is_ground_name(symbol):
             count += 1
     return count
 

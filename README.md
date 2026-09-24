@@ -80,6 +80,11 @@ The main window walkthrough, top to bottom:
    - **Show junction dots** (Alt+J): draw the filled dot where three or more
      wires meet, as KiCad does. On by default; uncheck for a cleaner drawing.
      Wiring and alt text are unchanged either way.
+   - **Show loop currents** (Alt+L): for teaching mesh analysis, draw each
+     loop current (i1, i2, ...) and describe it in the alt text. Off by
+     default; see [Loop currents](#loop-currents).
+   - **Show units on values** (Alt+U): write the unit after each value on
+     the drawing (`1` becomes `1 H` on an inductor, `22n` becomes `22 nF`).
 3. **Output Folder** — defaults to an `accessible` folder next to the input
    file; click **Choose...** (Alt+H) to change it.
 4. **Generate** (Alt+G) — runs the conversion in the background. The button
@@ -131,6 +136,11 @@ schemaccess INPUT.kicad_sch [options]
 | `-f`, `--format {pdf,svg,png,all}` | Image format(s) to render (default: `all`) |
 | `--check` | Report what the schematic converts to **without writing any files**; exits 1 if a component did not convert or was left out of the description |
 | `--no-junction-dots` | Omit the connection dots drawn where wires meet (included by default, as KiCad draws them) |
+| `--loops` | Draw and describe the loop currents i1, i2, ... for teaching mesh analysis (see [Loop currents](#loop-currents)) |
+| `--units` | Write units after the values on the drawing (`1` → `1 H`, `22n` → `22 nF`, `100k` → `100 kΩ`) |
+| `--netlist FORMATS` | Also write netlists: a comma-separated list of `spice`, `kicad`, `text`, `csv`, or `all` |
+| `--svg-preview` | Also write `<stem>_preview.svg`, drawn without LaTeX |
+| `--pdf-preview` | Also write `<stem>_preview.pdf`, the same drawing as a vector PDF |
 | `--print-alt` | Also print the generated alt text to stdout |
 | `-q`, `--quiet` | Suppress progress and `wrote:` lines (warnings/errors still go to stderr) |
 | `--version` | Show the version and exit |
@@ -145,13 +155,112 @@ schemaccess board.kicad_sch
 schemaccess board.kicad_sch -o out --format svg --detail detailed
 schemaccess board.kicad_sch --no-image --print-alt --quiet
 schemaccess board.kicad_sch --no-junction-dots --format pdf
+schemaccess board.kicad_sch --netlist all --svg-preview --pdf-preview
+schemaccess board.kicad_sch --netlist spice,csv --no-image
 ```
 
 Giving both `--no-alt-text` and `--no-image` produces no files but still
 parses the schematic and checks its connectivity — a quick validation pass.
 
 Generated files are named after the input file: `<stem>_alt_text.txt`,
-`<stem>.tex`, `<stem>.pdf`, `<stem>.svg`, `<stem>.png`.
+`<stem>.tex`, `<stem>.pdf`, `<stem>.svg`, `<stem>.png`, and — when asked
+for — `<stem>.cir`, `<stem>.net`, `<stem>_netlist.txt`,
+`<stem>_netlist.csv`, `<stem>_preview.svg` and
+`<stem>_preview.pdf`.
+
+### Web
+
+SchemAccess also runs in a web browser, with the same options and outputs
+as the desktop program:
+
+```
+python web/build.py
+python -m http.server 8765 --directory web
+```
+
+Open <http://localhost:8765> and upload a `.kicad_sch` file (or a `.zip` of
+a hierarchical project). See [web/README.md](web/README.md) for deploying
+the site.
+
+## Loop currents
+
+For teaching mesh analysis, `--loops` (the **Show loop currents** option in
+the desktop program and on the web page) marks every window of the circuit
+with its loop current -- i1, i2, ... -- as a circular arrow, the way a
+textbook figure does, and the alt text says which parts each loop runs
+through and what a shared part carries (i1 minus i2, or i1 plus i2).
+
+Each loop turns the way its current really flows, so no loop current comes
+out negative. When the circuit can be worked out (resistors and DC sources
+with numeric values; capacitors open and inductors shorted, as in DC) the
+mesh equations are solved to decide it; otherwise each loop follows the
+source in it -- current leaves a voltage source's + terminal, and follows a
+current source's arrow. So one source's loop runs one way, and a second
+source in another branch can send its loop the other way.
+
+The loops are kept to circuits they read well on: flat circuits of
+two-terminal parts with two to four loops, drawn with wires (ground symbols
+in one row count as a wire). Anything else -- more than four loops, an op
+amp or transistor, wires crossing without a junction, parts joined by net
+labels, no source, or sources whose directions cannot be told apart -- is
+converted as usual without them, and the report says why.
+
+## Netlists
+
+`--netlist` writes the circuit's connectivity in four shapes. All four
+come from the same electrical graph the alt text is written from, so they
+always agree with each other.
+
+| Format | File | What it is |
+| --- | --- | --- |
+| `spice` | `<stem>.cir` | An ngspice/LTspice deck. Ground is node `0`; every other net keeps its name. |
+| `kicad` | `<stem>.net` | KiCad's own S-expression netlist, the format `Tools > Generate Netlist` writes. |
+| `text` | `<stem>_netlist.txt` | A component and net table written to be *read*, by a person or a screen reader. |
+| `csv` | `<stem>_netlist.csv` | One row per pin: net, reference, component, value, pin number, pin name, pin type. |
+
+The SPICE deck is meant to run. Values are converted to SPICE magnitudes
+(`4k7` → `4.7k`, `22nF` → `22n`, `1MEG` → `1Meg`), diodes are written
+anode-first, sources positive-terminal-first, and MOSFET bulk is tied to
+source. Devices SPICE cannot infer from a schematic alone are **never
+guessed at**: a switch, a controlled source or a transformer is written
+as a commented-out line with its nodes already filled in, so you uncomment
+it and supply the one number the schematic does not carry. Op amps call an
+ideal infinite-gain subcircuit included at the end of the deck. Every one
+of those decisions is reported — on the command line as a warning, in the
+web page as a note.
+
+```
+* rc_divider.kicad_sch - netlist generated by SchemAccess
+* 4 components, 3 nets
+
+V1 N1 0 DC 5
+C1 N2 0 22n
+R1 N1 N2 20
+R2 N2 0 100
+
+* Add an analysis, e.g.  .op   .tran 1u 5m   .ac dec 20 1 1Meg
+.end
+```
+
+## Drawing without LaTeX
+
+`--svg-preview` and `--pdf-preview` write `<stem>_preview.svg` and
+`<stem>_preview.pdf`: the circuit drawn directly from the schematic's
+geometry, with no LaTeX involved. They exist so there is a picture on a
+machine with no TeX toolchain, and so the web page can show something
+instantly and hand over a printable file.
+
+Both come from the same drawing code — `svgpreview.draw()` takes a canvas,
+and `pdfwriter` supplies a second one — so a symbol fixed in one is fixed
+in both. The PDF is written by hand against the PDF imaging model (paths,
+transforms, the base-14 fonts) in the standard library alone; it is real
+vector output that scales and prints, not a rasterised image.
+
+These are a *preview*, not a second renderer: topology, positions and
+labels always match the CircuiTikZ output because both work from the same
+graph, but the symbol artwork is drawn by SchemAccess rather than by
+circuitikz, so it will not match a `pdflatex` rendering stroke for stroke.
+The `.tex` output remains the authoritative drawing.
 
 ## Supported components
 
@@ -314,7 +423,7 @@ KiCad to silence the warning.
 ## Tests
 
 ```
-python -m pytest                        # everything (~325 tests)
+python -m pytest                        # everything (~790 tests)
 python -m pytest -v                     # one line per test, pass/fail
 python -m pytest -m "not slow"          # skip the LaTeX compilation tests
 ```
@@ -376,6 +485,8 @@ PER-1: 200 components translated in 166.3 ms (read 146.4 ms,
   KiCad-symbol → component-type → CircuiTikZ-element mapping tables.
 - [docs/TESTING.md](docs/TESTING.md) — the requirement/test traceability
   matrix and how to run the test suite.
+- [web/README.md](web/README.md) — how the browser build works (Pyodide,
+  `build.py`, the driver module) and how to deploy it.
 
 ## License
 
