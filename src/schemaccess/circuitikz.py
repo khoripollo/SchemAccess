@@ -688,10 +688,14 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
         if anchor is None:
             if unconnected:
                 continue  # optional pin with nothing attached: no lead
+            # circuitikz's op amp has no anchor for this pin (a CA3080's
+            # BIAS, a THS4226's PD...).  Stop the lead on the body outline,
+            # the way KiCad draws such a pin as a stub; running it to
+            # .center slashes a line right across the triangle.
             warnings.append(f"{comp.ref}: pin {number} ('{pin.name}') has "
-                            f"no op-amp anchor; drawing a plain lead.")
-            lines.append(
-                f"\\draw {tr.coord(pin.position)} -- ({name}.center);")
+                            f"no op-amp anchor; drawn as a stub on the body.")
+            side = "up" if tr.point(pin.position)[1] >= node_y else "down"
+            lines.append(supply_lead(pin, side))
         elif anchor in ("up", "down"):
             if unconnected:
                 continue  # supply pin left floating in the schematic
