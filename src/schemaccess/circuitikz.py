@@ -90,6 +90,14 @@ _DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
 # just like the original schematic.
 _OPAMP_INPUT_HALF = 0.490
 _OPAMP_ANCHOR_X = 1.190
+# The triangle is narrower than its anchors: the shape draws short lead
+# stubs from the body out to '+', '-' and 'out', so the body itself spans
+# only +/-0.833 and its apex sits there, not at _OPAMP_ANCHOR_X.  Measured
+# off the shape's own drawn path (compiled, converted to SVG, read back
+# against a reference rectangle).  Using the anchor x here instead makes
+# every supply lead stop in the wrong place - short of the body on one
+# side of the symbol, inside it on the other.
+_OPAMP_BODY_X = 0.833
 # The '.up' supply anchor sits on the triangle's upper edge; together with
 # the apex (the '.out' anchor) it defines that edge, which lets supply
 # leads be drawn as straight vertical lines down to the body - the way
@@ -107,7 +115,7 @@ OPAMP_SCALE: Optional[float] = None
 def _opamp_edge_y(local_x: float) -> float:
     """Height of the op amp's upper edge at *local_x* (node coordinates)."""
     ax, ay = _OPAMP_UP_ANCHOR
-    slope = (0.0 - ay) / (_OPAMP_ANCHOR_X - ax)
+    slope = (0.0 - ay) / (_OPAMP_BODY_X - ax)
     return max(ay + slope * (local_x - ax), 0.0)
 
 # Measured circuitikz geometry at natural size (probed with \pgfgetlastxy
@@ -668,7 +676,7 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
         local_x = (-(px - cx) if mirrored else (px - cx)) / scale
         edge = _opamp_edge_y(local_x) * scale
         edge_y = node_y + edge if anchor == "up" else node_y - edge
-        inside = abs(local_x) < _OPAMP_ANCHOR_X
+        inside = abs(local_x) < _OPAMP_BODY_X
         if inside and ((anchor == "up" and py > edge_y)
                        or (anchor == "down" and py < edge_y)):
             return f"\\draw {_xy(px, py)} -- {_xy(px, edge_y)};"
