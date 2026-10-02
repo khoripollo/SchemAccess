@@ -33,9 +33,8 @@ from schemaccess.circuitikz import _Transform, _format_value
 from schemaccess.model import CircuitGraph, NetKind
 from schemaccess.netbuilder import node_names
 
-#: "R1 (resistor): pin 1 (IN) to node 2; pin 2 to ground."
-_ALT_COMPONENT = re.compile(r"^(?P<ref>\S+) \((?P<ctype>[^)]*)\): "
-                            r"(?P<body>.*)\.$")
+#: "R1: pin 1 (IN) to node 2; pin 2 to ground."
+_ALT_COMPONENT = re.compile(r"^(?P<ref>[^\s:]+): (?P<body>.*)\.$")
 _ALT_PIN = re.compile(r"^pin (?P<num>\S+?)(?: \((?P<name>.*)\))? "
                       r"to (?P<node>.+)$")
 _ALT_COUNTS = re.compile(r"There (?:is|are) (\d+) elements? "

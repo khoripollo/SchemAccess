@@ -205,12 +205,17 @@ def _component_phrase(comp: Component) -> str:
 _WINDING_TYPES = (ComponentType.INDUCTOR, ComponentType.TRANSFORMER)
 
 #: Terminal names for three-terminal devices, by pin name.
-_BJT_TERMINALS = {"C": "its collector", "B": "its base", "E": "its emitter"}
-_FET_TERMINALS = {"D": "its drain", "G": "its gate", "S": "its source"}
+_BJT_TERMINALS = {"C": "collector", "B": "base", "E": "emitter"}
+_FET_TERMINALS = {"D": "drain", "G": "gate", "S": "source"}
 
 
 def _pin_label(comp: Component, pin: PinConnection) -> str:
-    """Human name for a pin inside a multi-pin component sentence."""
+    """Human name for a pin, with no leading article.
+
+    The caller supplies 'the', so the same label works in a sentence
+    ("...with the collector connected to...") and in the exhaustive pin
+    listing, where a bare noun reads better.
+    """
     name = pin.name.strip()
     upper = name.upper()
     if comp.ctype.is_transistor:
@@ -224,18 +229,18 @@ def _pin_label(comp: Component, pin: PinConnection) -> str:
         winding = {"A": "primary", "S": "secondary"}.get(upper[0])
         if winding:
             end = "start" if upper[1] == "A" else "end"
-            return f"the {end} of its {winding} winding"
+            return f"{end} of the {winding} winding"
     if comp.ctype == ComponentType.OPAMP:
         if upper in ("V+", "VS+", "VCC", "VDD"):
-            return "its positive supply pin"
+            return "positive supply pin"
         if upper in ("V-", "VS-", "VSS", "VEE"):
-            return "its negative supply pin"
+            return "negative supply pin"
         if "-" in name:
-            return "its inverting input"
+            return "inverting input"
         if "+" in name:
-            return "its non-inverting input"
+            return "non-inverting input"
         if pin.etype == "output" or "OUT" in upper:
-            return "its output"
+            return "output"
     if name not in _PLACEHOLDER_PIN_NAMES:
         return f"pin {pin.number} ({name})"
     return f"pin {pin.number}"
@@ -243,6 +248,36 @@ def _pin_label(comp: Component, pin: PinConnection) -> str:
 
 def _distinct_nets(comp: Component) -> List[int]:
     return sorted({p.net_id for p in comp.pins.values() if p.net_id >= 0})
+
+
+#: Pin labels that carry no information once the pin is left unconnected.
+_OPTIONAL_PIN_LABELS = ("positive supply pin", "negative supply pin")
+
+
+def _the(label: str) -> str:
+    """Prefix a pin label with 'the', except the bare 'pin N' forms."""
+    return label if label.startswith("pin ") else f"the {label}"
+
+
+def _join_oxford(items: Sequence[str]) -> str:
+    """Join with a serial comma: 'a, b, and c'.
+
+    Used where a sentence lists a device's terminals: the extra comma
+    keeps the final clause from running into the previous one when the
+    clauses are themselves long.
+    """
+    items = list(items)
+    if len(items) <= 2:
+        return _join(items)
+    return ", ".join(items[:-1]) + ", and " + items[-1]
+
+
+def _is_dangling(graph: CircuitGraph, pin: PinConnection) -> bool:
+    """True when nothing else in the schematic shares this pin's net."""
+    if pin.net_id < 0:
+        return True
+    net = graph.nets[pin.net_id]
+    return net.kind == NetKind.ANONYMOUS and len(net.pins) <= 1
 
 
 # ---------------------------------------------------------------------------
@@ -289,7 +324,37 @@ def _standard_lines(graph: CircuitGraph,
     lines = [_counts_sentence(graph)]
     covered = set()
 
-    # Parallel groups first.
+    # Devices with more than two terminals come first: they are what the
+    # circuit is built around, so naming them before the passive groups
+    # gives a listener the shape of the circuit before the detail.  A
+    # device already inside a parallel or series group is left to that
+    # group's own sentence.
+    grouped = {r for g in analysis.parallel_groups for r in g}
+    grouped |= {r for c in analysis.series_chains for r in c}
+    for comp in graph.sorted_components():
+        if comp.ctype.is_two_terminal or comp.ref in grouped:
+            continue
+        covered.add(comp.ref)
+        parts = []
+        for key in sorted(comp.pins, key=_pin_key):
+            pin = comp.pins[key]
+            label = _pin_label(comp, pin)
+            # Supply rails are routinely left off a schematic sheet.
+            # Announcing one as "connected to an unconnected point" is
+            # noise to a listener; the exhaustive pin listing in the
+            # detailed output still records it.
+            if label in _OPTIONAL_PIN_LABELS and _is_dangling(graph, pin):
+                continue
+            parts.append(f"{_the(label)} connected to {nname(pin.net_id)}")
+        core = comp.ctype.value
+        if parts:
+            lines.append(f"{comp.ref} is {_article(core)} {core} with "
+                         f"{_join_oxford(parts)}.")
+        else:
+            lines.append(f"{comp.ref} is {_article(core)} {core} with no "
+                         f"connected pins.")
+
+    # Parallel groups.
     for group in analysis.parallel_groups:
         comps = [graph.components[r] for r in group]
         nets = _distinct_nets(comps[0])
@@ -324,29 +389,15 @@ def _standard_lines(graph: CircuitGraph,
         if comp.ref in covered:
             continue
         nets = _distinct_nets(comp)
-        if comp.ctype.is_two_terminal:
-            if len(nets) == 2:
-                lines.append(f"Between {nname(nets[0])} and "
-                             f"{nname(nets[1])}, {_component_phrase(comp)} "
-                             f"is connected.")
-            elif len(nets) == 1:
-                lines.append(f"{_cap(_component_phrase(comp))} has both "
-                             f"terminals connected to {nname(nets[0])}.")
-            else:
-                lines.append(f"{_cap(_component_phrase(comp))} is not "
-                             f"connected to anything.")
+        if len(nets) == 2:
+            lines.append(f"Between {nname(nets[0])} and {nname(nets[1])} "
+                         f"there is {_component_phrase(comp)}.")
+        elif len(nets) == 1:
+            lines.append(f"{_cap(_component_phrase(comp))} has both "
+                         f"terminals connected to {nname(nets[0])}.")
         else:
-            parts = []
-            for key in sorted(comp.pins, key=_pin_key):
-                pin = comp.pins[key]
-                parts.append(f"{_pin_label(comp, pin)} connected to "
-                             f"{nname(pin.net_id)}")
-            if parts:
-                lines.append(f"The {comp.ctype.value} labelled {comp.ref} "
-                             f"has {_join(parts)}.")
-            else:
-                lines.append(f"The {comp.ctype.value} labelled {comp.ref} "
-                             f"has no pins.")
+            lines.append(f"{_cap(_component_phrase(comp))} is not "
+                         f"connected to anything.")
 
     # Source polarity sentences.
     sources = [c for c in graph.sorted_components() if c.ctype.is_source]
@@ -382,7 +433,8 @@ def _short_lines(graph: CircuitGraph) -> List[str]:
 _DETAILED_STRUCTURE_KINDS = (
     "voltage_divider", "rc_low_pass", "rc_high_pass",
     "rl_low_pass", "rl_high_pass", "wheatstone",
-    "opamp_inverting", "opamp_non_inverting", "opamp_follower", "logic")
+    "opamp_inverting", "opamp_non_inverting", "opamp_follower",
+    "opamp_positive_feedback", "logic")
 
 
 def _detailed_lines(graph: CircuitGraph,
@@ -413,7 +465,7 @@ def _detailed_lines(graph: CircuitGraph,
                        else f"pin {pin.number}")
                 parts.append(f"{tag} to {nname(pin.net_id)}")
             listing = "; ".join(parts) if parts else "no pins"
-            lines.append(f"{comp.ref} ({comp.ctype.value}): {listing}.")
+            lines.append(f"{comp.ref}: {listing}.")
 
     # A polarity dot is information a sighted reader gets for free from the
     # drawing, so it has to be stated for a screen-reader user.

@@ -409,8 +409,20 @@ def _analyze_opamp(graph: CircuitGraph, comp: Component,
     feedback = sorted((r for r, nets in two_term.items()
                        if set(nets) == {o_net, m_net}), key=present_key)
     if not feedback:
+        # Feedback to the *non-inverting* input is positive feedback: a
+        # real and deliberate topology, not a missing connection.  Saying
+        # "no feedback path found" about it is simply wrong.
+        positive = sorted((r for r, nets in two_term.items()
+                           if set(nets) == {o_net, p_net}), key=present_key)
+        if positive:
+            desc = (f"{comp.ref} has positive feedback: {positive[0]} runs "
+                    f"from the output at {nname(o_net)} back to the "
+                    f"non-inverting input at {nname(p_net)}.")
+            return Structure("opamp_positive_feedback", desc,
+                             [comp.ref, positive[0]], [p_net, o_net])
         notes.append(f"No feedback path found for operational amplifier "
-                     f"{comp.ref}; its configuration was not recognized.")
+                     f"{comp.ref}; it is running open-loop, which is the "
+                     f"usual arrangement for a comparator.")
         return None
     fb = feedback[0]
 

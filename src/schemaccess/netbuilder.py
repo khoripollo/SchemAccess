@@ -310,6 +310,11 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
             # is an external port. Only anonymous single-pin nets dangle.
             if net.kind != NetKind.ANONYMOUS:
                 continue
+            # A supply pin left off the sheet is normal draughtsmanship,
+            # not a mistake: plenty of schematics draw an op amp without
+            # its rails.  Flagging those buries the real dangling pins.
+            if pin.etype in ("power_in", "power_out"):
+                continue
             if len(net.pins) == 1 and pin.position not in nc_points:
                 graph.warnings.append(
                     f"Pin {number} of {comp.ref} appears unconnected.")
