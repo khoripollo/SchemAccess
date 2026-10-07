@@ -48,6 +48,9 @@ class PipelineOptions:
     detail_level: str = "standard"      # short | standard | detailed
     basename: str = ""                  # default: input file stem
     junction_dots: bool = True          # draw KiCad connection dots
+    #: How switches are drawn: 'default' (plain), 'closing' or 'opening'
+    #: adds the arrow showing the contact in motion.
+    switch_style: str = "default"
     #: Netlist formats to write; empty writes none.  Accepts the keys of
     #: :data:`schemaccess.netlist.FORMATS`, or ``("all",)``.
     netlist_formats: Sequence[str] = ()
@@ -330,7 +333,8 @@ def run_pipeline(options: PipelineOptions,
         started = time.perf_counter()
         result.tikz_code = circuitikz.generate(
             drawn, junction_dots=options.junction_dots,
-            fallbacks=fallbacks, loops=options.show_loops)
+            fallbacks=fallbacks, loops=options.show_loops,
+            switch_style=options.switch_style)
         draw_ms = (time.perf_counter() - started) * 1000.0
         if options.dry_run:
             formats = []            # nothing written, nothing to render

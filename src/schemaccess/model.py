@@ -180,6 +180,22 @@ class Label:
 
 
 @dataclass
+class TextItem:
+    """Free graphic text placed on the sheet.
+
+    Not a net label - it names nothing and carries no connectivity.  It
+    is how a schematic is annotated ("a", "b", "t = 0" beside a switch),
+    which is information a sighted reader gets from the drawing and a
+    screen-reader user would otherwise lose entirely.
+    """
+    text: str
+    x: float
+    y: float
+    angle: float = 0.0
+    on_sheet: str = ""
+
+
+@dataclass
 class NoConnect:
     x: float
     y: float
@@ -207,6 +223,7 @@ class SchematicDocument:
     wires: List[Wire] = field(default_factory=list)
     junctions: List[Junction] = field(default_factory=list)
     labels: List[Label] = field(default_factory=list)
+    texts: List[TextItem] = field(default_factory=list)
     no_connects: List[NoConnect] = field(default_factory=list)
     sheets: List[SheetRef] = field(default_factory=list)
     warnings: List[str] = field(default_factory=list)
@@ -233,6 +250,7 @@ class ComponentType(enum.Enum):
     DIODE = "diode"
     LED = "LED"
     ZENER = "Zener diode"
+    SCHOTTKY = "Schottky diode"
     VOLTAGE_SOURCE = "voltage source"
     CURRENT_SOURCE = "current source"
     BATTERY = "battery"
@@ -243,6 +261,7 @@ class ComponentType(enum.Enum):
     PMOS = "P-channel MOSFET"
     NJFET = "N-channel JFET"
     PJFET = "P-channel JFET"
+    UJT = "unijunction transistor"
     CONTROLLED_VOLTAGE_SOURCE = "controlled voltage source"
     CONTROLLED_CURRENT_SOURCE = "controlled current source"
     OPAMP = "operational amplifier"
@@ -250,6 +269,7 @@ class ComponentType(enum.Enum):
     PUSHBUTTON = "push button"
     FUSE = "fuse"
     POTENTIOMETER = "potentiometer"
+    VARIABLE_RESISTOR = "variable resistor"
     CRYSTAL = "crystal"
     TRANSFORMER = "transformer"
     AND_GATE = "AND gate"
@@ -281,7 +301,7 @@ class ComponentType(enum.Enum):
         return self in (ComponentType.TRANSISTOR_NPN,
                         ComponentType.TRANSISTOR_PNP, ComponentType.NMOS,
                         ComponentType.PMOS, ComponentType.NJFET,
-                        ComponentType.PJFET)
+                        ComponentType.PJFET, ComponentType.UJT)
 
     @property
     def is_gate(self) -> bool:
@@ -295,6 +315,7 @@ _TWO_TERMINAL = {
     ComponentType.RESISTOR, ComponentType.CAPACITOR,
     ComponentType.CAPACITOR_POLARIZED, ComponentType.INDUCTOR,
     ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER,
+    ComponentType.SCHOTTKY, ComponentType.VARIABLE_RESISTOR,
     ComponentType.VOLTAGE_SOURCE, ComponentType.CURRENT_SOURCE,
     ComponentType.BATTERY, ComponentType.AC_SOURCE, ComponentType.SWITCH,
     ComponentType.PUSHBUTTON, ComponentType.FUSE, ComponentType.CRYSTAL,
@@ -323,6 +344,12 @@ class PinConnection:
     #: netlist) but two *drawn symbols*, and only this tells them apart.
     #: 0 means the symbol has no units worth distinguishing.
     unit: int = 0
+    #: Where this pin's line meets the symbol body, in schematic
+    #: coordinates.  KiCad draws a short stub from the connection point
+    #: to here, so a drawing that has no anchor for the pin - a MOSFET's
+    #: bulk, a BJT's substrate - can reproduce that stub instead of
+    #: guessing, or running a line across the symbol to its centre.
+    body_point: Optional[Point] = None
 
 
 @dataclass
@@ -429,7 +456,11 @@ class CircuitGraph:
 # lib_id name (after the colon), lower-cased, matched by prefix.
 _LIB_NAME_MAP = [
     ("r_potentiometer", ComponentType.POTENTIOMETER),
-    ("r_variable", ComponentType.POTENTIOMETER),
+    # A two-terminal adjustable resistor is a rheostat, not a pot: it has
+    # no wiper to bring out, and circuitikz draws it with 'vR'.
+    ("r_variable", ComponentType.VARIABLE_RESISTOR),
+    ("r_trim", ComponentType.VARIABLE_RESISTOR),
+    ("r_rheostat", ComponentType.VARIABLE_RESISTOR),
     ("r_pack", ComponentType.IC),
     ("r_", ComponentType.RESISTOR),
     ("r", ComponentType.RESISTOR),
@@ -526,6 +557,10 @@ _PREFIX_MAP = {
 _LIB_CATEGORY_MAP = [
     ("amplifier_operational", ComponentType.OPAMP),
     ("amplifier_instrumentation", ComponentType.OPAMP),
+    # An analog switch is a switch: its symbols carry unnamed pins, so
+    # nothing else would identify them.
+    ("analog_switch", ComponentType.SWITCH),
+    ("switch", ComponentType.SWITCH),
     ("simulation_spice", None),   # handled by symbol name (VDC, OPAMP...)
 ]
 
@@ -573,10 +608,22 @@ def _source_kind(name: str, value: str,
         current = True
     elif _VALUE_VOLTAGE_RE.match(value.strip()):
         current = False
-    elif "current" in hints.lower() and "voltage" not in hints.lower():
-        current = True
     else:
-        current = False
+        lowered_hints = hints.lower()
+        # SPICE names the four controlled sources VCVS/VCCS/CCVS/CCCS, and
+        # the *second* pair of letters is what the source delivers.  Their
+        # descriptions ("voltage-controlled current source") name both
+        # quantities, so a bare "current but not voltage" test reads them
+        # backwards - which is how GSOURCE came out a voltage source.
+        if ("vccs" in lowered_hints or "cccs" in lowered_hints
+                or "controlled current" in lowered_hints):
+            current = True
+        elif ("vcvs" in lowered_hints or "ccvs" in lowered_hints
+                or "controlled voltage" in lowered_hints):
+            current = False
+        else:
+            current = ("current" in lowered_hints
+                       and "voltage" not in lowered_hints)
 
     if "independent" in lowered:
         controlled = False
@@ -592,15 +639,49 @@ def _source_kind(name: str, value: str,
             else ComponentType.VOLTAGE_SOURCE)
 
 
+#: Channel polarity as KiCad writes it.  "P-Channel" is the common form,
+#: but the simulation library only ever says "PMOS" / "P-MOSFET" / "P-JFET",
+#: so matching on "p-channel" alone silently calls every one of those an
+#: n-channel part.  Word boundaries keep "NMOS" out of the p-channel test.
+_P_CHANNEL_RE = re.compile(
+    r"\bp[\s_-]?(channel|ch|mos(fet)?|jfet|fet)\b", re.IGNORECASE)
+_N_CHANNEL_RE = re.compile(
+    r"\bn[\s_-]?(channel|ch|mos(fet)?|jfet|fet)\b", re.IGNORECASE)
+
+
 def _fet_kind(name: str, hints: str) -> Optional["ComponentType"]:
     """Resolve a D/G/S transistor into a JFET or MOSFET component type."""
-    text = f"{name} {hints}".lower()
-    p_channel = "p-channel" in text or "p channel" in text
-    if "jfet" in text or name.lower().startswith(_JFET_PREFIXES):
+    text = f"{name} {hints}"
+    lowered = text.lower()
+    # An explicit n-channel marker wins, so a part described as "comple-
+    # mentary to the P-channel BSS84" is still read as n-channel.
+    p_channel = bool(_P_CHANNEL_RE.search(text)) and not (
+        _N_CHANNEL_RE.search(text) and not _P_CHANNEL_RE.match(text))
+    if "jfet" in lowered or name.lower().startswith(_JFET_PREFIXES):
         return ComponentType.PJFET if p_channel else ComponentType.NJFET
-    if "mosfet" in text or "fet" in text:
+    if "mosfet" in lowered or "fet" in lowered or "mos" in lowered:
         return ComponentType.PMOS if p_channel else ComponentType.NMOS
     return None
+
+
+#: Diode families.  Every part-number diode in KiCad shares the same A/K
+#: pin signature, so the family is only ever visible in the keywords and
+#: description - "diode Schottky", "diode zener" and so on.
+_SCHOTTKY_RE = re.compile(r"\bschottky\b", re.IGNORECASE)
+_ZENER_RE = re.compile(r"\bzener\b", re.IGNORECASE)
+_LED_RE = re.compile(r"\b(led|light[\s-]?emitting)\b", re.IGNORECASE)
+
+
+def _diode_kind(name: str, hints: str) -> "ComponentType":
+    """Which diode family a two-terminal diode symbol belongs to."""
+    text = f"{name} {hints}"
+    if _SCHOTTKY_RE.search(text):
+        return ComponentType.SCHOTTKY
+    if _ZENER_RE.search(text):
+        return ComponentType.ZENER
+    if _LED_RE.search(text):
+        return ComponentType.LED
+    return ComponentType.DIODE
 
 
 def _looks_like_opamp(pin_names: Sequence[str]) -> bool:
@@ -637,6 +718,11 @@ def classify(lib_id: str, reference: str = "", value: str = "",
     # Three-terminal transistors are identified by their pin names, which
     # are standard across libraries; the family comes from name + hints.
     upper_pins = {str(p).strip().upper() for p in pin_names}
+    # A unijunction transistor names its two bases B1/B2, so it matches
+    # neither the FET nor the BJT signature; check it before both, or the
+    # reference prefix guesses it is an ordinary BJT.
+    if {"E", "B1", "B2"} <= upper_pins:
+        return ComponentType.UJT
     if {"D", "G", "S"} <= upper_pins:
         fet = _fet_kind(raw_name, hints)
         if fet is not None:
@@ -648,6 +734,11 @@ def classify(lib_id: str, reference: str = "", value: str = "",
             return ComponentType.TRANSISTOR_PNP
         if "npn" in text:
             return ComponentType.TRANSISTOR_NPN
+    # A two-pin anode/cathode symbol is a diode of some family.  Requiring
+    # exactly two pins keeps thyristors and optocouplers, which also carry
+    # A and K, out of this branch.
+    if len(upper_pins) == 2 and {"A", "K"} <= upper_pins:
+        return _diode_kind(raw_name, hints)
     for prefix, ctype in _LIB_NAME_MAP:
         if name == prefix:
             return ctype
@@ -660,12 +751,36 @@ def classify(lib_id: str, reference: str = "", value: str = "",
         if ctype is not None and library.startswith(lib_prefix):
             return ctype
 
-    if _looks_like_opamp(pin_names):
+    # An amplifier needs two inputs *and* an output.  Without the pin-count
+    # floor a two-terminal meter labelled '+' and '-' - KiCad's Ammeter_DC,
+    # Galvanometer, Buzzer - comes out as an operational amplifier.
+    if pin_count >= 3 and _looks_like_opamp(pin_names):
         return ComponentType.OPAMP
 
     ref_prefix = "".join(ch for ch in reference if not ch.isdigit()).upper()
     if ref_prefix in _PREFIX_MAP:
         ctype = _PREFIX_MAP[ref_prefix]
+        # Every diode shares the 'D' prefix; the family is in the keywords.
+        if ctype == ComponentType.DIODE:
+            return _diode_kind(raw_name, hints)
+        # So does every transistor share 'Q'.  Falling straight through to
+        # the prefix would call a JFET or a MOSFET an NPN whenever the pin
+        # names are unavailable, so consult the keywords first.
+        if ctype in (ComponentType.TRANSISTOR_NPN,
+                     ComponentType.TRANSISTOR_PNP):
+            text = f"{raw_name} {hints}".lower()
+            # Only trust _fet_kind here when the text actually says FET.
+            # Its part-number prefix list is a last resort for symbols
+            # already known to have D/G/S pins; applied blind it claims
+            # 2N3904 and its PNP siblings, which are plain BJTs.
+            if "fet" in text or "mos" in text:
+                fet = _fet_kind(raw_name, hints)
+                if fet is not None:
+                    return fet
+            if "pnp" in text:
+                return ComponentType.TRANSISTOR_PNP
+            if "npn" in text:
+                return ComponentType.TRANSISTOR_NPN
         # A 'U' with 3 pins and 'opamp'-like value is probably an op-amp.
         if ctype == ComponentType.IC and "amp" in value.lower():
             return ComponentType.OPAMP

@@ -60,15 +60,19 @@ _GAP_MARGIN = 50.0
 _BIPOLE_KEYS: Dict[ComponentType, str] = {
     ComponentType.RESISTOR: "R",
     ComponentType.POTENTIOMETER: "pR",
+    ComponentType.VARIABLE_RESISTOR: "vR",
     ComponentType.CAPACITOR: "C",
     ComponentType.CAPACITOR_POLARIZED: "cC",
     ComponentType.INDUCTOR: "L",
     ComponentType.DIODE: "D",
     ComponentType.LED: "leD",
-    ComponentType.ZENER: "zD",
+    # 'zzD' is circuitikz's fullzzdiode - the Zener with the full Z-bar
+    # cathode, rather than 'zD' which draws only a half bar.
+    ComponentType.ZENER: "zzD",
+    ComponentType.SCHOTTKY: "sD",
     ComponentType.VOLTAGE_SOURCE: "V",
     ComponentType.CURRENT_SOURCE: "I",
-    ComponentType.BATTERY: "battery1",
+    ComponentType.BATTERY: "battery",
     ComponentType.AC_SOURCE: "sV",
     ComponentType.SWITCH: "nos",
     ComponentType.PUSHBUTTON: "nopb",
@@ -80,7 +84,8 @@ _BIPOLE_KEYS: Dict[ComponentType, str] = {
     ComponentType.CONTROLLED_CURRENT_SOURCE: "cisource",
 }
 
-_DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER)
+_DIODE_TYPES = (ComponentType.DIODE, ComponentType.LED, ComponentType.ZENER,
+                ComponentType.SCHOTTKY)
 
 # Measured geometry of circuitikz's `op amp` node at scale 1 (probed with
 # \pgfgetlastxy against circuitikz 1.7): the '+'/'-' input anchors sit at
@@ -133,7 +138,37 @@ _TRANSISTOR_STYLES: Dict[
     ComponentType.PMOS: ("pmos", "G", "D", "S", 0.0, -0.77),
     ComponentType.NJFET: ("njfet", "G", "D", "S", -0.2695, 0.77),
     ComponentType.PJFET: ("pjfet", "G", "D", "S", 0.2695, -0.77),
+    ComponentType.UJT: ("nujt", "G", "D", "S", -0.2695, 0.77),
 }
+
+# Pin names that do not start with their anchor's letter.  A unijunction
+# transistor's terminals are E, B1 and B2, which share no initial with
+# circuitikz's G/D/S anchors - and worse, both bases start with 'B', so
+# first-letter matching hands B2 the BJT base anchor and leaves B1 with
+# nothing.  The anchors are positional: 'D' is the top terminal, so KiCad's
+# B2 (drawn on top) goes there and the symbol keeps the sheet's layout.
+_TRANSISTOR_PIN_ALIASES: Dict[ComponentType, Dict[str, str]] = {
+    ComponentType.UJT: {"E": "G", "B2": "D", "B1": "S"},
+}
+
+# Measured circuitikz 'spdt' geometry at natural size (probed the same
+# way as the transistors): the common terminal sits at (-0.595, 0) and
+# the two throws at (+0.595, +/-0.315).  Scaling the node uniformly so
+# the throws land on the KiCad pin heights keeps every lead straight,
+# the same trick the op amp uses.
+#: The plain 'spdt'.  Do NOT swap this for 'cute spdt up' or any other
+#: cute variant: the thin lever is the house style for this project.
+#: The cute shape would close the small gap circuitikz leaves between
+#: the lever and the throw contact, but that is not worth changing the
+#: symbol over - the gap is drawn into the plain shape's own path and
+#: cannot be closed from outside.
+_SPDT_STYLE = "spdt"
+_SPDT_IN_X = 0.595
+_SPDT_OUT_DY = 0.315
+
+#: How circuitikz strokes a switch's motion arrow: the component line
+#: width with a solid 'latexslim' head, not TikZ's hairline '->'.
+_SWITCH_ARROW_STYLE = "-{Latex[length=3.6pt,width=3pt]}, line width=0.8pt"
 
 _TR_CHANNEL_Y = 0.77
 _XFMR_ANCHOR = 1.0495
@@ -282,7 +317,8 @@ def _format_value(comp: Component) -> str:
     raw = comp.value.strip()
     if _is_placeholder_value(raw, comp.lib_id, comp.ctype):
         return ""
-    if comp.ctype in (ComponentType.RESISTOR, ComponentType.POTENTIOMETER) \
+    if comp.ctype in (ComponentType.RESISTOR, ComponentType.POTENTIOMETER,
+                      ComponentType.VARIABLE_RESISTOR) \
             and _BARE_NUMBER_RE.match(raw):
         return raw + r"~$\Omega$"
     micro = _MICRO_VALUE_RE.match(raw)
@@ -499,15 +535,47 @@ _DIAMOND_KEYS: Dict[ComponentType, str] = {
 }
 
 
-def _bipole_key(comp: Component) -> str:
+#: How a switch may be drawn.  circuitikz's 'nos' is a plain normally-open
+#: switch; 'cnos' and 'onos' add the arrow that says the contact is in the
+#: act of closing or opening, which is what teaching material uses to show
+#: a transient.  Keyed by the names the CLI and GUI accept.
+#: circuitikz's plain switch family.  Do not swap these for the "cute"
+#: variants: the thin lever is the house style for this project.
+#:
+#: 'cspst' and 'ospst' are the styles circuitikz itself calls "closing
+#: switch" and "opening switch": lever, arrow, and a clean gap in the
+#: lead.  Do not use 'cnos'/'onos' here - those are the *normal open*
+#: switches, which draw an extra vertical contact tick beside the arrow
+#: and run the lead straight through, so the symbol looks cramped and
+#: carries a stray mark on its right.
+SWITCH_STYLE_KEYS: Dict[str, str] = {
+    "default": "nos",
+    "closing": "cspst",
+    "opening": "ospst",
+}
+
+
+def switch_key(style: str = "default") -> str:
+    """The bipole every switch is drawn with.
+
+    An unknown name falls back to the plain switch rather than failing
+    the conversion.
+    """
+    return SWITCH_STYLE_KEYS.get(style, "nos")
+
+
+def _bipole_key(comp: Component, switch_style: str = "default") -> str:
     """The circuitikz bipole for *comp*, honouring its drawn outline."""
+    if comp.ctype == ComponentType.SWITCH:
+        return switch_key(switch_style)
     if comp.body_shape == "diamond" and comp.ctype in _DIAMOND_KEYS:
         return _DIAMOND_KEYS[comp.ctype]
     return _BIPOLE_KEYS[comp.ctype]
 
 
-def _emit_two_terminal(comp: Component, tr: _Transform) -> List[str]:
-    key = _bipole_key(comp)
+def _emit_two_terminal(comp: Component, tr: _Transform,
+                       switch_style: str = "default") -> List[str]:
+    key = _bipole_key(comp, switch_style)
     if comp.ctype == ComponentType.POTENTIOMETER and len(comp.pins) == 3:
         return _emit_potentiometer(comp, tr)
     first, second = _bipole_pin_order(comp)
@@ -720,6 +788,228 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
     return lines
 
 
+#: Pin names that are mechanical, not electrical: a mounting pin must not
+#: be mistaken for a switch terminal.
+_MECHANICAL_PIN_NAMES = {"MP", "MH", "SHIELD", "SH", "CASE"}
+
+
+def _spdt_triple(points: List[Point], usable: List[int]
+                 ) -> Optional[Tuple[int, int, int]]:
+    """Find (pole, throw, throw) among *usable* pins, at any rotation.
+
+    The throws share a coordinate on one axis and the pole sits on the
+    far side, roughly level with their midpoint.  Testing both axes is
+    what makes this work for a symbol KiCad placed rotated: the throws
+    then share a row rather than a column.
+    """
+    for axis in (0, 1):
+        groups: Dict[float, List[int]] = {}
+        for index in usable:
+            groups.setdefault(round(points[index][axis], 2), []).append(index)
+        for key, members in groups.items():
+            if len(members) != 2:
+                continue
+            first, second = members
+            middle = (points[first][1 - axis] + points[second][1 - axis]) / 2.0
+            for index in usable:
+                if index in members:
+                    continue
+                if (abs(points[index][1 - axis] - middle) <= 0.3
+                        and abs(points[index][axis] - key) > 0.3):
+                    return index, first, second
+    return None
+
+
+def _emit_controlled_source(comp: Component, tr: _Transform,
+                            warnings: List[str],
+                            dangling: Set[int],
+                            fallbacks: Optional[Set[str]] = None
+                            ) -> List[str]:
+    """A SPICE E/G source: the diamond, plus leads for its sense pins.
+
+    KiCad's ESOURCE and GSOURCE carry four pins - the output pair N+/N-
+    and the controlling pair C+/C-.  That extra pair is the only reason
+    they never reached the two-terminal path and came out as boxes; the
+    body is the same diamond a two-pin controlled source draws, so it is
+    drawn across N+/N- and the sense pins get the stub KiCad draws.
+    """
+    outputs, controls = [], []
+    for number in sorted(comp.pins, key=_pin_sort_key):
+        pin = comp.pins[number]
+        name = pin.name.strip().upper()
+        (controls if name.startswith("C") else outputs).append(pin)
+    if len(outputs) != 2:
+        warnings.append(f"{comp.ref}: controlled source pins are not an "
+                        f"N+/N- output pair; drawing a box.")
+        return _emit_generic_box(comp, tr, fallbacks)
+
+    plus = next((p for p in outputs if "+" in p.name), outputs[0])
+    minus = next(p for p in outputs if p is not plus)
+    # Same polarity convention as the two-terminal sources: a voltage
+    # source wants its '+' second, a current source wants it first.
+    first, second = ((plus, minus)
+                     if comp.ctype == ComponentType.CONTROLLED_CURRENT_SOURCE
+                     else (minus, plus))
+    key = _bipole_key(comp)
+    lines = [f"\\draw {tr.coord(first.position)} "
+             f"to[{_bipole_options(comp, key)}] {tr.coord(second.position)};"]
+    # The sense pins get a lead only when something is actually wired to
+    # them.  On an unwired sheet their stubs are just two stray marks
+    # floating beside the diamond.
+    for pin in controls:
+        if pin.net_id < 0 or pin.net_id in dangling:
+            continue
+        target = (tr.coord(pin.body_point) if pin.body_point is not None
+                  else tr.coord(comp.position))
+        lines.append(f"\\draw {tr.coord(pin.position)} -- {target};")
+    return lines
+
+
+def _library_up(comp: Component) -> Point:
+    """The symbol's own +y axis, as a direction in drawing coordinates.
+
+    Mirrors :meth:`SymbolInstance.lib_point`: rotate within the library
+    frame, flip Y into schematic space, then apply the mirror - and the
+    drawing flips Y once more.
+    """
+    angle = math.radians(comp.angle)
+    ox, oy = -math.sin(angle), -math.cos(angle)
+    if comp.mirror == "x":
+        oy = -oy
+    elif comp.mirror == "y":
+        ox = -ox
+    return (ox, -oy)
+
+
+def _emit_spdt(comp: Component, tr: _Transform, warnings: List[str],
+               fallbacks: Optional[Set[str]] = None,
+               switch_style: str = "default") -> List[str]:
+    """Draw a changeover switch as a circuitikz 'spdt'.
+
+    KiCad draws an SPDT with the common pole alone on one side and the
+    two throws facing it; circuitikz's spdt node has exactly that shape,
+    with 'in' for the pole and 'out 1'/'out 2' for the throws.  The node
+    is rotated to the pole-to-throws direction and scaled uniformly so
+    the throw anchors land on the real pin positions, which keeps every
+    lead straight whatever rotation the symbol was placed at.
+    """
+    numbers = sorted(comp.pins, key=_pin_sort_key)
+    pins = [comp.pins[n] for n in numbers]
+    points = [tr.point(p.position) for p in pins]
+    usable = [i for i, p in enumerate(pins)
+              if p.name.strip().upper() not in _MECHANICAL_PIN_NAMES]
+    triple = _spdt_triple(points, usable)
+    if triple is None:
+        warnings.append(f"{comp.ref}: not a changeover (SPDT) layout; "
+                        f"drawing a box.")
+        return _emit_generic_box(comp, tr, fallbacks)
+
+    pole_i, first_i, second_i = triple
+    pole_x, pole_y = points[pole_i]
+    mid_x = (points[first_i][0] + points[second_i][0]) / 2.0
+    mid_y = (points[first_i][1] + points[second_i][1]) / 2.0
+    # KiCad places on a grid, so the pole-to-throws direction is a right
+    # angle; snapping removes any float drift before it reaches the TeX.
+    angle = round(math.degrees(math.atan2(mid_y - pole_y, mid_x - pole_x))
+                  / 90.0) * 90.0
+    radians = math.radians(angle)
+    along = (math.cos(radians), math.sin(radians))
+    across = (-math.sin(radians), math.cos(radians))
+
+    half = math.dist(points[first_i], points[second_i]) / 2.0
+    scale = min(max(half / _SPDT_OUT_DY, 0.6), 2.0) if half > 0.05 else 1.0
+    reach = _SPDT_IN_X * scale
+    cx = pole_x + along[0] * reach
+    cy = pole_y + along[1] * reach
+
+    # Which throw the lever rests on is not a free choice: KiCad draws it
+    # against the throw at positive y in the symbol's own coordinates -
+    # true of every stock changeover (SW_SPDT_321 rests on pin 3,
+    # SW_SPDT_312 on pin 3, SW_DPDT_x2 on pin 1, the TS3A analog switch
+    # on pin 5).  circuitikz rests its lever on 'out 1', so that throw
+    # has to be given that anchor or the drawing shows the switch thrown
+    # the wrong way.
+    lever = _library_up(comp)
+    span = (points[first_i][0] - points[second_i][0],
+            points[first_i][1] - points[second_i][1])
+    out_one, out_two = ((first_i, second_i)
+                        if span[0] * lever[0] + span[1] * lever[1] > 0
+                        else (second_i, first_i))
+
+    # 'out 1' must come to rest on the lever's own side of the symbol, or
+    # its lead crosses over the other throw's.  A rotation alone cannot
+    # do that for half the placements - it preserves handedness, so it
+    # carries 'out 1' to the far side - and the flip is what fixes it.
+    # Measured: [rotate=T, yscale=-1] mirrors before rotating, putting
+    # 'out 1' at -perp instead of +perp.
+    wanted = (points[out_one][0] - mid_x, points[out_one][1] - mid_y)
+    flipped = wanted[0] * across[0] + wanted[1] * across[1] < 0
+
+    # The node's own frame, reused to draw the motion arrow in the same
+    # orientation as the lever.
+    frame = []
+    if abs(angle) > 1e-6:
+        frame.append(f"rotate={_fmt(angle)}")
+    if flipped:
+        frame.append("yscale=-1")
+
+    options = [_SPDT_STYLE]
+    if abs(scale - 1.0) > 1e-3:
+        options.append(f"scale={_fmt(scale)}")
+    options.extend(frame)
+    name = _node_name(comp.ref)
+    draws_arrow = switch_style in ("closing", "opening")
+    arrow_radius = 1.2 * _SPDT_IN_X * scale
+    label_y = cy + _SPDT_OUT_DY * scale + 0.3
+    if draws_arrow:
+        # Keep the reference clear of the arc that is about to be drawn.
+        label_y = max(label_y, cy + arrow_radius * 0.75 + 0.25)
+    lines = [f"\\node[{', '.join(options)}] ({name}) at {_xy(cx, cy)} {{}};"]
+    lines.extend(_label_node(comp, cx, label_y))
+
+    for anchor, index in (("out 1", out_one), ("out 2", out_two)):
+        lines.append(f"\\draw ({name}.{anchor}) -- "
+                     f"{_xy(*points[index])};")
+
+    # Control and mounting pins have no anchor on the shape; draw the
+    # stub KiCad draws rather than a line across the symbol.
+    for index, pin in enumerate(pins):
+        if index in (pole_i, first_i, second_i):
+            continue
+        target = (tr.coord(pin.body_point) if pin.body_point is not None
+                  else _xy(cx, cy))
+        lines.append(f"\\draw {_xy(*points[index])} -- {target};")
+
+    # The style option is a bipole key, which a node cannot take, so the
+    # motion arrow is drawn by hand - matching how circuitikz draws it on
+    # cspst/ospst, because an arrow that does not match SW2's looks like
+    # a different kind of mark.  There it is an arc centred on the pole,
+    # radius 1.2x the half-width, swept 90deg to -20deg for closing and
+    # the reverse for opening, stroked at the component line width with a
+    # solid head; drawing it in the node's own frame keeps it crossing
+    # the lever whatever rotation the symbol was placed at.
+    if draws_arrow:
+        # The sweep is pulled in from circuitikz's 90/-20: its lever
+        # rises at ~40deg where the spdt's rises at ~15deg, so the same
+        # angles would leave the arrow sailing well past the lever.
+        # 50 degrees of sweep, centred on the lever so the arc crosses it
+        # rather than running alongside: the lever rises from the pole to
+        # the closed throw, so its angle follows from the shape's own
+        # proportions rather than being a fixed number.
+        lever_angle = math.degrees(
+            math.atan2(_SPDT_OUT_DY, 2.0 * _SPDT_IN_X))
+        low, high = lever_angle - 25.0, lever_angle + 25.0
+        start, end = ((high, low) if switch_style == "closing"
+                      else (low, high))
+        radius = arrow_radius
+        scope = ", ".join([f"shift={{({name}.in)}}"] + frame)
+        lines.append(
+            f"\\draw[{_SWITCH_ARROW_STYLE}, {scope}] "
+            f"({_fmt(start)}:{_fmt(radius)}) arc[start angle={_fmt(start)}, "
+            f"end angle={_fmt(end)}, radius={_fmt(radius)}];")
+    return lines
+
+
 def _emit_transistor(comp: Component, tr: _Transform,
                      warnings: List[str]) -> List[str]:
     """A circuitikz transistor node placed so its leads stay orthogonal.
@@ -736,12 +1026,14 @@ def _emit_transistor(comp: Component, tr: _Transform,
     anchors = (control, first, second)
     name = _node_name(comp.ref)
 
+    aliases = _TRANSISTOR_PIN_ALIASES.get(comp.ctype, {})
     assigned: Dict[str, str] = {}
     remaining = dict(zip(anchors, anchors))
     for number in sorted(comp.pins, key=_pin_sort_key):
-        letter = comp.pins[number].name.strip()[:1].upper()
-        if letter in remaining:
-            assigned[number] = remaining.pop(letter)
+        pin_name = comp.pins[number].name.strip().upper()
+        key = aliases.get(pin_name, pin_name[:1])
+        if key in remaining:
+            assigned[number] = remaining.pop(key)
 
     by_anchor = {a: comp.pins[n] for n, a in assigned.items()}
     ctrl_pin = by_anchor.get(control)
@@ -780,9 +1072,16 @@ def _emit_transistor(comp: Component, tr: _Transform,
         anchor = assigned.get(number)
         px, py = tr.point(pin.position)
         if anchor is None:
+            # circuitikz has no terminal for this pin (a MOSFET's bulk, a
+            # BJT's substrate).  Draw the stub KiCad draws - from the
+            # connection point in to where the pin meets the body - and
+            # stop there.  Running it to .center instead puts a line
+            # straight across the symbol.
             warnings.append(f"{comp.ref}: pin {number} ('{pin.name}') has "
-                            f"no {style} anchor; drawing a plain lead.")
-            lines.append(f"\\draw {_xy(px, py)} -- ({name}.center);")
+                            f"no {style} anchor; drawn as a stub.")
+            stub = (tr.coord(pin.body_point) if pin.body_point is not None
+                    else f"({name}.center)")
+            lines.append(f"\\draw {_xy(px, py)} -- {stub};")
             continue
         if anchor == control:
             anchor_y = cy + (-ctrl_dy if flipped else ctrl_dy)
@@ -982,7 +1281,8 @@ def _label_node(comp: Component, x: float, y: float) -> List[str]:
 
 def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
                     dangling: Set[int],
-                    fallbacks: Optional[Set[str]] = None) -> List[str]:
+                    fallbacks: Optional[Set[str]] = None,
+                    switch_style: str = "default") -> List[str]:
     if comp.ctype == ComponentType.OPAMP and len(comp.pins) >= 3:
         units = sorted({p.unit for p in comp.pins.values()})
         if len(units) <= 1:
@@ -1000,6 +1300,14 @@ def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
         return _emit_transformer(comp, tr, fallbacks)
     if comp.ctype in _GATE_STYLES and len(comp.pins) >= 2:
         return _emit_gate(comp, tr, warnings, dangling, fallbacks)
+    if comp.ctype in (ComponentType.SWITCH, ComponentType.PUSHBUTTON) \
+            and 3 <= len(comp.pins) <= 5:
+        return _emit_spdt(comp, tr, warnings, fallbacks, switch_style)
+    if comp.ctype in (ComponentType.CONTROLLED_VOLTAGE_SOURCE,
+                      ComponentType.CONTROLLED_CURRENT_SOURCE) \
+            and len(comp.pins) == 4:
+        return _emit_controlled_source(comp, tr, warnings, dangling,
+                                       fallbacks)
     return _emit_generic_box(comp, tr, fallbacks)
 
 
@@ -1081,9 +1389,33 @@ def _emit_polarity_dots(graph: CircuitGraph, tr: _Transform) -> List[str]:
     """
     lines: List[str] = []
     for ref in sorted(graph.components, key=_ref_sort_key):
-        for position, radius in graph.components[ref].dots:
+        comp = graph.components[ref]
+        # A transistor's filled circles are body art, not polarity marks:
+        # KiCad fills the dot where a MOSFET's bulk meets its source, and
+        # circuitikz's own shape already draws whatever it needs there.
+        if comp.ctype.is_transistor:
+            continue
+        for position, radius in comp.dots:
             lines.append(f"\\fill {tr.coord(position)} "
                          f"circle ({_fmt(max(radius * SCALE, 0.03))});")
+    return lines
+
+
+def _emit_texts(doc: SchematicDocument, tr: _Transform) -> List[str]:
+    """Free graphic text the sheet carries ("a", "b", "t = 0").
+
+    KiCad anchors its text at the left of the first line, so the node is
+    anchored the same way rather than centred, or the annotation drifts
+    off whatever it was placed beside.
+    """
+    lines = []
+    for item in doc.texts:
+        options = ["anchor=west", "font=\\small"]
+        if abs(item.angle) > 1e-6:
+            options.append(f"rotate={_fmt(item.angle)}")
+        body = _escape(item.text).replace("\n", r"\\")
+        lines.append(f"\\node[{', '.join(options)}] at "
+                     f"{tr.coord((item.x, item.y))} {{{body}}};")
     return lines
 
 
@@ -1121,7 +1453,8 @@ def _emit_loops(graph: CircuitGraph, tr: _Transform) -> List[str]:
 
 def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
                   fallbacks: Optional[Set[str]] = None,
-                  loops: bool = False) -> str:
+                  loops: bool = False,
+                  switch_style: str = "default") -> str:
     """Return only the ``\\begin{circuitikz}...\\end{circuitikz}`` body.
 
     Set *junction_dots* to False to omit the filled dots KiCad draws where
@@ -1172,7 +1505,7 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
     if two_terminal:
         lines.append("% Two-terminal components")
         for comp in two_terminal:
-            lines.extend(_emit_two_terminal(comp, tr))
+            lines.extend(_emit_two_terminal(comp, tr, switch_style))
 
     if multi_pin:
         lines.append("% Multi-pin components")
@@ -1181,7 +1514,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
         dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
         for comp in multi_pin:
             lines.extend(
-                _emit_component(comp, tr, warnings, dangling, fallbacks))
+                _emit_component(comp, tr, warnings, dangling, fallbacks,
+                                switch_style))
 
     _warn_unmapped_characters(graph, doc, warnings)
 
@@ -1200,6 +1534,11 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
         lines.append("% Net labels")
         lines.extend(label_lines)
 
+    text_lines = _emit_texts(doc, tr)
+    if text_lines:
+        lines.append("% Sheet text")
+        lines.extend(text_lines)
+
     loop_lines = _emit_loops(graph, tr) if loops else []
     if loop_lines:
         lines.append("% Loop currents, each taken clockwise")
@@ -1215,7 +1554,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
 
 def generate(graph: CircuitGraph, *, junction_dots: bool = True,
              fallbacks: Optional[Set[str]] = None,
-             loops: bool = False) -> str:
+             loops: bool = False,
+             switch_style: str = "default") -> str:
     """Return a complete standalone LaTeX document (circuitikz) for *graph*.
 
     The document compiles with ``pdflatex`` without modification, preserves
@@ -1237,7 +1577,8 @@ def generate(graph: CircuitGraph, *, junction_dots: bool = True,
         r"\usepackage[RPvoltages]{circuitikz}",
         r"\begin{document}",
         generate_body(graph, junction_dots=junction_dots,
-                      fallbacks=fallbacks, loops=loops),
+                      fallbacks=fallbacks, loops=loops,
+                      switch_style=switch_style),
         r"\end{document}",
         "",
     ])

@@ -13,7 +13,7 @@ from typing import List, Optional
 from . import sexpr
 from .model import (Junction, Label, LabelKind, LibSymbol, NoConnect, PinDef,
                     SchematicDocument, SheetRef, SymbolDot, SymbolInstance,
-                    Wire, snap)
+                    TextItem, Wire, snap)
 
 
 class KiCadParseError(ValueError):
@@ -93,6 +93,10 @@ def parse_document(root: list) -> SchematicDocument:
                 lbl = _parse_label(node, t)
                 if lbl:
                     doc.labels.append(lbl)
+            elif t == "text":
+                item = _parse_text(node)
+                if item:
+                    doc.texts.append(item)
             elif t == "no_connect":
                 at = _parse_at(node)
                 if at:
@@ -154,6 +158,30 @@ def _parse_lib_symbol(node: list, doc: SchematicDocument) -> Optional[LibSymbol]
         dot = _parse_dot(circle, 0)
         if dot:
             lib.dots.append(dot)
+
+    # A symbol may inherit its artwork and pins from another:
+    #   (symbol "1N5817" (extends "D") ...)
+    # KiCad flattens this when it writes a schematic, so .kicad_sch files
+    # never need it - but .kicad_sym libraries use it heavily (701 of the
+    # 763 diodes), and without it such a symbol parses with no pins at all.
+    extends = sexpr.child(node, "extends")
+    if extends is not None and len(extends) > 1:
+        base = doc.lib_symbols.get(str(extends[1]))
+        if base is None:                       # library-local, unprefixed
+            tail = f":{extends[1]}"
+            base = next((s for key, s in doc.lib_symbols.items()
+                         if key.endswith(tail)), None)
+        if base is not None:
+            if not lib.pins:
+                lib.pins = list(base.pins)
+            if not lib.dots:
+                lib.dots = list(base.dots)
+            if lib.body_shape is None:
+                lib.body_shape = base.body_shape
+            if not lib.description:
+                lib.description = base.description
+            if not lib.keywords:
+                lib.keywords = base.keywords
     return lib
 
 
@@ -367,6 +395,18 @@ def _parse_at(node: list):
     return None
 
 
+def _parse_text(node: list) -> Optional[TextItem]:
+    """Free graphic text: (text "t=0" (at x y angle) (effects ...))."""
+    if len(node) < 2 or not isinstance(node[1], str):
+        return None
+    body = str(node[1]).strip()
+    at = sexpr.child(node, "at")
+    if not body or not at or len(at) < 3:
+        return None
+    angle = float(at[3]) if len(at) > 3 else 0.0
+    return TextItem(text=body, x=float(at[1]), y=float(at[2]), angle=angle)
+
+
 def _parse_label(node: list, kind: str) -> Optional[Label]:
     if len(node) < 2:
         return None
@@ -448,6 +488,10 @@ def _merge_subsheets(doc: SchematicDocument, path: str, depth: int) -> None:
             if lbl.kind == LabelKind.LOCAL:
                 lbl.text = f"{prefix}/{lbl.text}"
             doc.labels.append(lbl)
+        for item in sub.texts:
+            item.x += span
+            item.on_sheet = prefix
+            doc.texts.append(item)
         for nc in sub.no_connects:
             nc.x += span
             doc.no_connects.append(nc)

@@ -17,6 +17,7 @@ deterministic names N1, N2, ... ordered by their top-left-most point.
 
 from __future__ import annotations
 
+import math
 from collections import defaultdict
 from typing import Dict, List, Optional, Set, Tuple
 
@@ -278,9 +279,16 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
         for pin in lib.pins_for_unit(inst.unit):
             pos = inst.pin_position(pin)
             net_id = root_to_net.get(uf.find(pos), -1)
+            # Walk the pin's own line inward to where it meets the body.
+            # Going through lib_point means the result follows the placed
+            # symbol's rotation and mirroring exactly like the pin does.
+            towards = math.radians(pin.orientation)
+            body = inst.lib_point(pin.x + pin.length * math.cos(towards),
+                                  pin.y + pin.length * math.sin(towards))
             comp.pins[pin.number] = PinConnection(
                 number=pin.number, name=pin.name, position=pos,
-                net_id=net_id, etype=pin.etype, unit=inst.unit)
+                net_id=net_id, etype=pin.etype, unit=inst.unit,
+                body_point=body)
         # Polarity dots travel with the placed symbol, so they follow its
         # rotation and mirroring like the pins do.
         for dot in lib.dots_for_unit(inst.unit):

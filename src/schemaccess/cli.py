@@ -21,7 +21,7 @@ import argparse
 import os
 import sys
 
-from . import __version__, netlist, pipeline
+from . import __version__, circuitikz, netlist, pipeline
 
 #: Preferred, deterministic ordering for the "wrote:" report lines.
 _FILE_ORDER = ("alt_text", "tex", "pdf", "svg", "png",
@@ -112,6 +112,14 @@ def build_parser() -> argparse.ArgumentParser:
         action="store_true",
         help="omit the connection dots drawn where wires meet "
              "(they are included by default, as KiCad draws them)",
+    )
+    parser.add_argument(
+        "--switch-style",
+        choices=sorted(circuitikz.SWITCH_STYLE_KEYS),
+        default="default",
+        help="how to draw switches: 'default' is a plain open contact, "
+             "'closing' and 'opening' add the arrow showing the contact "
+             "in motion (default: default)",
     )
     parser.add_argument(
         "--loops",
@@ -218,6 +226,7 @@ def main(argv: list[str] | None = None) -> int:
         export_format=args.format,
         detail_level="detailed" if args.check else args.detail,
         junction_dots=not args.no_junction_dots,
+        switch_style=args.switch_style,
         show_loops=args.loops,
         show_units=args.units,
         netlist_formats=netlist_formats,

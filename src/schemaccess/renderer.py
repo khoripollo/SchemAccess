@@ -21,6 +21,7 @@ import os
 import shutil
 import subprocess
 import sys
+import time
 from typing import Dict, List, Optional, Tuple
 
 #: Hard timeout (seconds) for every external tool invocation.  Generous
@@ -32,6 +33,44 @@ _LOG_CONTEXT_LINES = 4
 
 #: Upper bound on error-report lines so we never dump a whole log file.
 _MAX_ERROR_LINES = 40
+
+
+#: Name the converters write to before the result is moved into place.
+_SCRATCH_SUFFIX = ".schemaccess-part"
+
+#: How hard to try moving a finished image onto its final name.
+_REPLACE_ATTEMPTS = 4
+_REPLACE_BACKOFF = 0.25
+
+
+def _replace_file(source: str, target: str, tool_name: str) -> None:
+    """Move *source* onto *target*, waiting out a transient lock.
+
+    Windows refuses to *create* a file another process is holding open,
+    which is why a render could fail once - "Error opening output file" -
+    and then succeed when run again a moment later: Explorer's thumbnail
+    worker, an image viewer or a cloud-sync client had the previous
+    render open.  Letting the converter write a scratch file and moving
+    it into place avoids that, because a replace succeeds against
+    readers that opened the file share-delete, and a short retry covers
+    the rest.
+    """
+    last: Optional[OSError] = None
+    for attempt in range(_REPLACE_ATTEMPTS):
+        try:
+            os.replace(source, target)
+            return
+        except OSError as exc:
+            last = exc
+            time.sleep(_REPLACE_BACKOFF * (attempt + 1))
+    try:
+        os.remove(source)
+    except OSError:
+        pass
+    raise RenderError(
+        f"{tool_name} produced the image, but '{target}' could not be "
+        f"written: {last}. It is most likely open in another program, or "
+        f"a sync client is holding it; close it and convert again.")
 
 
 class RenderError(RuntimeError):
@@ -187,14 +226,15 @@ class Renderer:
     def _pdf_to_svg(self, pdf_path: str) -> str:
         """Convert *pdf_path* to an SVG next to it and return the SVG path."""
         svg_path = os.path.splitext(pdf_path)[0] + ".svg"
+        scratch = os.path.splitext(pdf_path)[0] + _SCRATCH_SUFFIX + ".svg"
         pdftocairo = self.tools.get("pdftocairo")
         dvisvgm = self.tools.get("dvisvgm")
         if pdftocairo:
             tool_name = "pdftocairo"
-            cmd = [pdftocairo, "-svg", pdf_path, svg_path]
+            cmd = [pdftocairo, "-svg", pdf_path, scratch]
         elif dvisvgm:
             tool_name = "dvisvgm"
-            cmd = [dvisvgm, "--pdf", pdf_path, "-o", svg_path]
+            cmd = [dvisvgm, "--pdf", pdf_path, "-o", scratch]
         else:
             raise RenderError(
                 "No SVG converter found on PATH (need pdftocairo or "
@@ -206,23 +246,27 @@ class Renderer:
                 f"{tool_name} failed (exit code {proc.returncode}): "
                 + self._tool_output_tail(proc)
             )
-        self._require_output(svg_path, tool_name)
+        self._require_output(scratch, tool_name)
+        _replace_file(scratch, svg_path, tool_name)
         return svg_path
 
     def _pdf_to_png(self, pdf_path: str) -> str:
         """Convert *pdf_path* to a 300 dpi PNG and return the PNG path."""
         base = os.path.splitext(pdf_path)[0]
         png_path = base + ".png"
+        # Convert to a scratch name and move it into place, rather than
+        # letting the converter create the final file: see _replace_file.
+        scratch = base + _SCRATCH_SUFFIX
         pdftocairo = self.tools.get("pdftocairo")
         pdftoppm = self.tools.get("pdftoppm")
         if pdftocairo:
             tool_name = "pdftocairo"
             cmd = [pdftocairo, "-png", "-r", "300", "-singlefile",
-                   pdf_path, base]
+                   pdf_path, scratch]
         elif pdftoppm:
             tool_name = "pdftoppm"
             cmd = [pdftoppm, "-png", "-r", "300", "-singlefile",
-                   pdf_path, base]
+                   pdf_path, scratch]
         else:
             raise RenderError(
                 "No PNG converter found on PATH (need pdftocairo or "
@@ -234,20 +278,16 @@ class Renderer:
                 f"{tool_name} failed (exit code {proc.returncode}): "
                 + self._tool_output_tail(proc)
             )
-        if not os.path.isfile(png_path):
+        produced = scratch + ".png"
+        if not os.path.isfile(produced):
             # Some pdftoppm builds append a page number despite -singlefile.
             for suffix in ("-1", "-01", "-001"):
-                candidate = base + suffix + ".png"
+                candidate = scratch + suffix + ".png"
                 if os.path.isfile(candidate):
-                    try:
-                        os.replace(candidate, png_path)
-                    except OSError as exc:
-                        raise RenderError(
-                            f"Could not rename '{candidate}' to "
-                            f"'{png_path}': {exc}"
-                        ) from exc
+                    produced = candidate
                     break
-        self._require_output(png_path, tool_name)
+        self._require_output(produced, tool_name)
+        _replace_file(produced, png_path, tool_name)
         return png_path
 
     def _run(self, cmd: List[str]) -> "subprocess.CompletedProcess[str]":

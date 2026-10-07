@@ -79,6 +79,7 @@ def make_pipeline_options(
     junction_dots: bool = True,
     show_loops: bool = False,
     show_units: bool = False,
+    switch_style: str = "default",
 ) -> PipelineOptions:
     """Translate GUI widget state into a :class:`PipelineOptions`.
 
@@ -98,6 +99,7 @@ def make_pipeline_options(
         junction_dots=junction_dots,
         show_loops=show_loops,
         show_units=show_units,
+        switch_style=switch_style,
     )
 
 
@@ -250,6 +252,21 @@ class MainWindow(QMainWindow):
             "1 H for an inductor or 22 nF for a capacitor.")
         self.units_check.toggled.connect(self._on_option_toggled)
 
+        self.switch_label = QLabel("S&witch style:", options_group)
+        self.switch_combo = QComboBox(options_group)
+        for label, key in (("As drawn (plain contact)", "default"),
+                           ("Show as closing", "closing"),
+                           ("Show as opening", "opening")):
+            self.switch_combo.addItem(label, key)
+        self.switch_combo.setAccessibleName("Switch style")
+        self.switch_combo.setAccessibleDescription(
+            "How switches are drawn. 'As drawn' is a plain open contact. "
+            "'Show as closing' and 'Show as opening' add the arrow that "
+            "says the contact is in the act of closing or opening, which "
+            "is what teaching material uses to show a transient.")
+        self.switch_label.setBuddy(self.switch_combo)
+        self.switch_combo.currentIndexChanged.connect(self._on_option_toggled)
+
         options_layout.addWidget(self.alt_text_check, 0, 0)
         options_layout.addWidget(self.image_check, 0, 1)
         options_layout.addWidget(self.format_label, 1, 0)
@@ -257,6 +274,8 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(self.junction_check, 2, 0, 1, 2)
         options_layout.addWidget(self.loops_check, 3, 0, 1, 2)
         options_layout.addWidget(self.units_check, 4, 0, 1, 2)
+        options_layout.addWidget(self.switch_label, 5, 0)
+        options_layout.addWidget(self.switch_combo, 5, 1)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -373,7 +392,8 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.format_combo, self.junction_check)
         QWidget.setTabOrder(self.junction_check, self.loops_check)
         QWidget.setTabOrder(self.loops_check, self.units_check)
-        QWidget.setTabOrder(self.units_check, self.output_edit)
+        QWidget.setTabOrder(self.units_check, self.switch_combo)
+        QWidget.setTabOrder(self.switch_combo, self.output_edit)
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
         QWidget.setTabOrder(self.generate_button, self.progress_log)
@@ -403,6 +423,9 @@ class MainWindow(QMainWindow):
             bool(s.value("options/show_loops", False, type=bool)))
         self.units_check.setChecked(
             bool(s.value("options/show_units", False, type=bool)))
+        style = str(s.value("options/switch_style", "default"))
+        index = self.switch_combo.findData(style)
+        self.switch_combo.setCurrentIndex(max(index, 0))
 
     def _save_settings(self) -> None:
         """Persist UI state to QSettings."""
@@ -416,6 +439,8 @@ class MainWindow(QMainWindow):
         s.setValue("options/junction_dots", self.junction_check.isChecked())
         s.setValue("options/show_loops", self.loops_check.isChecked())
         s.setValue("options/show_units", self.units_check.isChecked())
+        s.setValue("options/switch_style",
+                   self.switch_combo.currentData() or "default")
         s.sync()
 
     # --------------------------------------------------------- interactions
@@ -479,6 +504,7 @@ class MainWindow(QMainWindow):
             junction_dots=self.junction_check.isChecked(),
             show_loops=self.loops_check.isChecked(),
             show_units=self.units_check.isChecked(),
+            switch_style=self.switch_combo.currentData() or "default",
         )
 
     # ------------------------------------------------------------- pipeline

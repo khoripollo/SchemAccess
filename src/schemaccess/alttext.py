@@ -151,12 +151,18 @@ def format_value(value: str, ctype: ComponentType) -> Optional[str]:
 # First words that take 'an' despite starting with a consonant letter.
 _AN_FIRST_WORDS = {"LED", "NPN", "N-channel", "XOR", "XNOR", "RC", "RL"}
 
+# Words that start with a vowel letter but a consonant *sound*, so they
+# take 'a': "a unijunction transistor", not "an unijunction transistor".
+_A_FIRST_PREFIXES = ("uni", "use", "uti", "eu")
+
 
 def _article(phrase: str) -> str:
     """Choose 'a' or 'an' for *phrase*."""
     first = phrase.split()[0] if phrase.split() else phrase
     if first in _AN_FIRST_WORDS:
         return "an"
+    if first.lower().startswith(_A_FIRST_PREFIXES):
+        return "a"
     if phrase[:1] in "aeiouAEIOU8":
         return "an"
     return "a"
@@ -207,6 +213,7 @@ _WINDING_TYPES = (ComponentType.INDUCTOR, ComponentType.TRANSFORMER)
 #: Terminal names for three-terminal devices, by pin name.
 _BJT_TERMINALS = {"C": "collector", "B": "base", "E": "emitter"}
 _FET_TERMINALS = {"D": "drain", "G": "gate", "S": "source"}
+_UJT_TERMINALS = {"E": "emitter", "B1": "base 1", "B2": "base 2"}
 
 
 def _pin_label(comp: Component, pin: PinConnection) -> str:
@@ -219,10 +226,13 @@ def _pin_label(comp: Component, pin: PinConnection) -> str:
     name = pin.name.strip()
     upper = name.upper()
     if comp.ctype.is_transistor:
-        table = (_BJT_TERMINALS
-                 if comp.ctype in (ComponentType.TRANSISTOR_NPN,
-                                   ComponentType.TRANSISTOR_PNP)
-                 else _FET_TERMINALS)
+        if comp.ctype == ComponentType.UJT:
+            table = _UJT_TERMINALS
+        elif comp.ctype in (ComponentType.TRANSISTOR_NPN,
+                            ComponentType.TRANSISTOR_PNP):
+            table = _BJT_TERMINALS
+        else:
+            table = _FET_TERMINALS
         if upper in table:
             return table[upper]
     if comp.ctype == ComponentType.TRANSFORMER and len(upper) == 2:
@@ -255,8 +265,14 @@ _OPTIONAL_PIN_LABELS = ("positive supply pin", "negative supply pin")
 
 
 def _the(label: str) -> str:
-    """Prefix a pin label with 'the', except the bare 'pin N' forms."""
-    return label if label.startswith("pin ") else f"the {label}"
+    """Prefix a pin label with 'the', except where it reads wrongly.
+
+    A numbered terminal is named like a proper noun - "base 1", "pin 4" -
+    and takes no article.
+    """
+    if label.startswith("pin ") or label[-1:].isdigit():
+        return label
+    return f"the {label}"
 
 
 def _join_oxford(items: Sequence[str]) -> str:
@@ -469,7 +485,11 @@ def _detailed_lines(graph: CircuitGraph,
 
     # A polarity dot is information a sighted reader gets for free from the
     # drawing, so it has to be stated for a screen-reader user.
-    dotted = [c for c in graph.sorted_components() if c.dots]
+    # A transistor's filled circle is body art - KiCad fills the point
+    # where a MOSFET's bulk meets its source - so it says nothing about
+    # polarity and must not be announced as if it did.
+    dotted = [c for c in graph.sorted_components()
+              if c.dots and not c.ctype.is_transistor]
     if dotted:
         for comp in dotted:
             marker = ("winding-phase dot" if comp.ctype in _WINDING_TYPES
@@ -477,6 +497,16 @@ def _detailed_lines(graph: CircuitGraph,
             lines.append(
                 f"The {comp.ctype.value} labelled {comp.ref} is marked with "
                 f"a {marker}.")
+
+    # Free text on the sheet - "a", "b", "t = 0" beside a switch - is
+    # part of the question being asked, and a listener gets it from
+    # nowhere else.
+    doc = graph.document
+    notes = [item.text.strip() for item in (doc.texts if doc else [])
+             if item.text.strip()]
+    if notes:
+        lines.append("Text written on the schematic: "
+                     + _join([f"'{note}'" for note in notes]) + ".")
 
     messages = list(analysis.notes) + list(graph.warnings)
     if messages:
