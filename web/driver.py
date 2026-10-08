@@ -60,7 +60,8 @@ def root_sheet(paths) -> str:
 
 
 def convert(path: str, junction_dots: bool = True,
-            loops: bool = False, units: bool = False) -> str:
+            loops: bool = False, units: bool = False,
+            switch_style: str = "default") -> str:
     global _LAST
     _LAST = {}
 
@@ -80,7 +81,8 @@ def convert(path: str, junction_dots: bool = True,
     fallbacks: set = set()
     drawn = units_module.apply(graph) if units else graph
     tex = circuitikz.generate(drawn, junction_dots=junction_dots,
-                              fallbacks=fallbacks, loops=bool(loops))
+                              fallbacks=fallbacks, loops=bool(loops),
+                              switch_style=switch_style)
     draw_ms = (time.perf_counter() - started) * 1000.0
 
     started = time.perf_counter()
