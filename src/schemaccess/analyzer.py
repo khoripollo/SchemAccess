@@ -116,6 +116,17 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
         if comp.ctype.is_source:
             source_ids.update(n for n in comp.net_ids() if n >= 0)
     drive_ids = power_ids | source_ids
+    driven_ids: Set[int] = set()
+    for comp in graph.sorted_components():
+        if comp.ctype.is_transistor:
+            driven_ids.update(p.net_id for p in comp.pins.values()
+                              if p.net_id >= 0
+                              and p.name.strip().upper() not in ("B", "G"))
+        elif comp.ctype == ComponentType.OPAMP:
+            for pins in _signal_units(comp).values():
+                out = _opamp_pins(pins)[2]
+                if out is not None and out.net_id >= 0:
+                    driven_ids.add(out.net_id)
 
     # ------------------------------------------------------------------
     # Parallel groups: same unordered pair of nets.
@@ -281,7 +292,8 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
                     junction = x
                 else:
                     continue
-                if junction not in (net_a, net_b) or junction in power_ids:
+                if (junction not in (net_a, net_b) or junction in power_ids
+                        or junction in driven_ids):
                     continue
                 inp = net_b if junction == net_a else net_a
                 if inp in ground_ids:
@@ -308,8 +320,12 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
             for mid in all_net_ids:
                 if mid in (top, bottom):
                     continue
-                upper = pair_members.get((min(top, mid), max(top, mid)))
-                lower = pair_members.get((min(mid, bottom), max(mid, bottom)))
+                upper = [r for r in pair_members.get(
+                    (min(top, mid), max(top, mid)), [])
+                    if not graph.components[r].ctype.is_source]
+                lower = [r for r in pair_members.get(
+                    (min(mid, bottom), max(mid, bottom)), [])
+                    if not graph.components[r].ctype.is_source]
                 if upper and lower:
                     mids.append((mid, upper[0], lower[0]))
             if len(mids) >= 2:
@@ -324,13 +340,26 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
     # ------------------------------------------------------------------
     # Op-amp configurations.
     # ------------------------------------------------------------------
+    chain_ends = [(order, set(boundary)) for order, _i, boundary in chains
+                  if boundary is not None]
     for comp in graph.sorted_components():
         if comp.ctype != ComponentType.OPAMP:
             continue
-        structure = _analyze_opamp(graph, comp, two_term, ground_ids,
-                                   present_key, nname, analysis.notes)
-        if structure is not None:
-            analysis.structures.append(structure)
+        units = _signal_units(comp)
+        for unit in sorted(units):
+            label = (f"{comp.ref}{chr(ord('A') + unit - 1)}"
+                     if len(units) > 1 and unit > 0 else comp.ref)
+            structure = _analyze_opamp(graph, comp, two_term, ground_ids,
+                                       present_key, nname, analysis.notes,
+                                       label, units[unit], chain_ends)
+            if structure is not None:
+                analysis.structures.append(structure)
+    loops = [set(s.refs) for s in analysis.structures
+             if s.kind.startswith("opamp_")]
+    analysis.structures = [
+        s for s in analysis.structures
+        if not (s.kind.startswith(("rc_", "rl_"))
+                and any(set(s.refs) <= refs for refs in loops))]
 
     # ------------------------------------------------------------------
     # Logic gates: one structure listing every gate with its nets.
@@ -370,12 +399,19 @@ def _is_power_pin(pin: PinConnection) -> bool:
             or pin.name.strip().upper() in _POWER_PIN_NAMES)
 
 
-def _opamp_pins(comp: Component) -> Tuple[Optional[PinConnection],
-                                          Optional[PinConnection],
-                                          Optional[PinConnection]]:
+def _signal_units(comp: Component) -> Dict[int, List[PinConnection]]:
+    units: Dict[int, List[PinConnection]] = {}
+    for key in sorted(comp.pins, key=_pin_key):
+        pin = comp.pins[key]
+        if not _is_power_pin(pin):
+            units.setdefault(pin.unit, []).append(pin)
+    return units
+
+
+def _opamp_pins(signal: List[PinConnection]) -> Tuple[Optional[PinConnection],
+                                                      Optional[PinConnection],
+                                                      Optional[PinConnection]]:
     """Return the (inverting, non-inverting, output) pins, best effort."""
-    signal = [comp.pins[k] for k in sorted(comp.pins, key=_pin_key)
-              if not _is_power_pin(comp.pins[k])]
     minus = next((p for p in signal if "-" in p.name), None)
     plus = next((p for p in signal if "+" in p.name), None)
     out = next((p for p in signal
@@ -390,46 +426,70 @@ def _opamp_pins(comp: Component) -> Tuple[Optional[PinConnection],
 def _analyze_opamp(graph: CircuitGraph, comp: Component,
                    two_term: Dict[str, Tuple[int, int]],
                    ground_ids: Set[int], present_key, nname,
-                   notes: List[str]) -> Optional[Structure]:
+                   notes: List[str], label: str,
+                   signal: List[PinConnection],
+                   chain_ends: List[Tuple[List[str], Set[int]]]
+                   ) -> Optional[Structure]:
     """Classify one op-amp as follower / inverting / non-inverting."""
-    minus, plus, out = _opamp_pins(comp)
+    minus, plus, out = _opamp_pins(signal)
     if (minus is None or plus is None or out is None
             or min(minus.net_id, plus.net_id, out.net_id) < 0):
         notes.append(f"Could not identify the input and output pins of "
-                     f"operational amplifier {comp.ref}.")
+                     f"operational amplifier {label}.")
         return None
     m_net, p_net, o_net = minus.net_id, plus.net_id, out.net_id
 
     if o_net == m_net:
-        desc = (f"{comp.ref} is configured as a voltage follower "
+        desc = (f"{label} is configured as a voltage follower "
                 f"(unity-gain buffer) with input at {nname(p_net)} and "
                 f"output at {nname(o_net)}.")
         return Structure("opamp_follower", desc, [comp.ref], [p_net, o_net])
 
-    feedback = sorted((r for r, nets in two_term.items()
-                       if set(nets) == {o_net, m_net}), key=present_key)
-    if not feedback:
+    stage: List[str] = []
+    candidates = [(o_net, stage)]
+    followers = sorted((t for t in graph.sorted_components()
+                        if t.ctype.is_transistor and any(
+                            p.net_id == o_net and p.name.strip().upper() in ("B", "G")
+                            for p in t.pins.values())), key=lambda t: _ref_key(t.ref))
+    for net_id in sorted({p.net_id for t in followers for p in t.pins.values()
+                          if p.name.strip().upper() in ("E", "S") and p.net_id >= 0}):
+        candidates.append((net_id, [t.ref for t in followers]))
+    feedback: List[str] = []
+    chained: List[List[str]] = []
+    for cand, via in candidates:
+        feedback = sorted((r for r, nets in two_term.items()
+                           if set(nets) == {cand, m_net}), key=present_key)
+        chained = [order for order, ends in chain_ends if ends == {cand, m_net}]
+        if feedback or chained:
+            o_net, stage = cand, via
+            break
+    if not feedback and not chained:
         # Feedback to the *non-inverting* input is positive feedback: a
         # real and deliberate topology, not a missing connection.  Saying
         # "no feedback path found" about it is simply wrong.
+        out_net = out.net_id
         positive = sorted((r for r, nets in two_term.items()
-                           if set(nets) == {o_net, p_net}), key=present_key)
+                           if set(nets) == {out_net, p_net}), key=present_key)
         if positive:
-            desc = (f"{comp.ref} has positive feedback: {positive[0]} runs "
-                    f"from the output at {nname(o_net)} back to the "
+            desc = (f"{label} has positive feedback: {positive[0]} runs "
+                    f"from the output at {nname(out_net)} back to the "
                     f"non-inverting input at {nname(p_net)}.")
             return Structure("opamp_positive_feedback", desc,
-                             [comp.ref, positive[0]], [p_net, o_net])
+                             [comp.ref, positive[0]], [p_net, out_net])
         notes.append(f"No feedback path found for operational amplifier "
-                     f"{comp.ref}; it is running open-loop, which is the "
+                     f"{label}; it is running open-loop, which is the "
                      f"usual arrangement for a comparator.")
         return None
-    fb = feedback[0]
+    in_loop = set(feedback) | {r for order in chained for r in order}
+    parts = list(feedback) + [f"the series chain {_join(order)}" for order in chained]
+    fb = _join(parts)
+    verb = "provides" if len(parts) == 1 else "provide"
+    via = f" through the {_join(stage)} output stage" if stage else ""
 
     input_legs: List[Tuple[str, int]] = []
     ground_legs: List[str] = []
     for ref in sorted(two_term, key=present_key):
-        if ref == fb:
+        if ref in in_loop:
             continue
         a, b = two_term[ref]
         if m_net not in (a, b):
@@ -442,26 +502,27 @@ def _analyze_opamp(graph: CircuitGraph, comp: Component,
         else:
             input_legs.append((ref, other))
 
+    refs = [comp.ref] + sorted(in_loop, key=present_key)
     if p_net in ground_ids and input_legs:
         r_in, src = input_legs[0]
-        desc = (f"{comp.ref} is configured as an inverting amplifier: the "
+        desc = (f"{label} is configured as an inverting amplifier: the "
                 f"signal enters through {r_in} from {nname(src)} into the "
-                f"inverting input, {fb} provides feedback from the output "
-                f"at {nname(o_net)}, and the non-inverting input is "
+                f"inverting input, {fb} {verb} feedback from the output "
+                f"at {nname(o_net)}{via}, and the non-inverting input is "
                 f"grounded.")
-        return Structure("opamp_inverting", desc, [comp.ref, r_in, fb],
+        return Structure("opamp_inverting", desc, refs + [r_in],
                          [src, o_net])
     if p_net not in ground_ids and ground_legs:
         r_g = ground_legs[0]
-        desc = (f"{comp.ref} is configured as a non-inverting amplifier: "
+        desc = (f"{label} is configured as a non-inverting amplifier: "
                 f"the signal drives the non-inverting input at "
-                f"{nname(p_net)}, {fb} provides feedback from the output "
-                f"at {nname(o_net)}, and {r_g} connects the inverting "
+                f"{nname(p_net)}, {fb} {verb} feedback from the output "
+                f"at {nname(o_net)}{via}, and {r_g} connects the inverting "
                 f"input to ground.")
-        return Structure("opamp_non_inverting", desc, [comp.ref, r_g, fb],
+        return Structure("opamp_non_inverting", desc, refs + [r_g],
                          [p_net, o_net])
 
-    notes.append(f"Operational amplifier {comp.ref} has feedback through "
+    notes.append(f"Operational amplifier {label} has feedback through "
                  f"{fb} but its configuration was not recognized.")
     return None
 

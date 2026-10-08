@@ -44,8 +44,10 @@ def _load(library: str) -> Dict[str, object]:
     the file: the first pass registers every symbol, the second re-reads
     them with the whole library available to resolve ``extends``.
     """
-    root = sexpr.load(str(SYMBOLS / f"{library}.kicad_sym"))
-    nodes = [n for n in root
+    single = SYMBOLS / f"{library}.kicad_sym"
+    files = ([single] if single.is_file() else
+             sorted((SYMBOLS / f"{library}.kicad_symdir").glob("*.kicad_sym")))
+    nodes = [n for f in files for n in sexpr.load(str(f))
              if isinstance(n, list) and n and n[0] == "symbol"]
     doc = SchematicDocument()
     for _ in range(2):

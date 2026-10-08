@@ -1298,9 +1298,8 @@ def draw(graph: CircuitGraph, canvas, *,
             canvas.circle(squeeze((junction.x, junction.y)), _JUNCTION_R,
                           "sa-dot")
 
-    # Nets joining fewer than two pins are dangling; an optional pin on
-    # one of them gets no lead, matching the CircuiTikZ output.
-    dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
+    dangling = {net.net_id for net in graph.nets
+                if len(net.pins) < 2 and net.kind == NetKind.ANONYMOUS}
     for ref in sorted(graph.components, key=_ref_key):
         _draw_component(canvas, graph.components[ref], squeeze,
                         dangling=dangling)

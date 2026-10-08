@@ -1279,6 +1279,36 @@ def _label_node(comp: Component, x: float, y: float) -> List[str]:
     return [f"\\node[font=\\small, anchor=south] at {_xy(x, y)} {{{text}}};"]
 
 
+_SUPPLY_PIN_NAMES = {"v+", "v-", "vcc", "vdd", "vee", "vss", "gnd"}
+
+
+def _is_supply_pin(pin: PinConnection) -> bool:
+    return (pin.name.strip().lower() in _SUPPLY_PIN_NAMES
+            or pin.etype in ("power_in", "power_out"))
+
+
+def _emit_supply_unit(comp: Component, pins: Dict[str, PinConnection],
+                      tr: _Transform, dangling: Set[int]) -> List[str]:
+    unit = next(iter(pins.values())).unit
+    cx, cy = tr.point(comp.unit_positions.get(unit, comp.position))
+    lines: List[str] = []
+    for number in sorted(pins, key=_pin_sort_key):
+        pin = pins[number]
+        px, py = tr.point(pin.position)
+        bx, by = (tr.point(pin.body_point) if pin.body_point is not None
+                  else ((px + cx) / 2.0, (py + cy) / 2.0))
+        lines.append(f"\\draw {_xy(px, py)} -- {_xy(bx, by)};")
+        anchor = "north" if by >= cy else "south"
+        lines.append(f"\\node[font=\\scriptsize, anchor={anchor}] at "
+                     f"{_xy(bx, by)} {{{_escape(pin.name)}}};")
+    text = _box_label(comp)
+    if text:
+        right = max(tr.point(p.position)[0] for p in pins.values())
+        lines.append(f"\\node[font=\\small, anchor=west] at "
+                     f"{_xy(right + 0.3, cy)} {{{text}}};")
+    return lines
+
+
 def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
                     dangling: Set[int],
                     fallbacks: Optional[Set[str]] = None,
@@ -1289,7 +1319,11 @@ def _emit_component(comp: Component, tr: _Transform, warnings: List[str],
             return _emit_opamp(comp, tr, warnings, dangling)
         lines: List[str] = []
         for unit in units:
-            lines.extend(_emit_opamp(comp, tr, warnings, dangling, unit))
+            pins = {n: p for n, p in comp.pins.items() if p.unit == unit}
+            if all(_is_supply_pin(p) for p in pins.values()):
+                lines.extend(_emit_supply_unit(comp, pins, tr, dangling))
+            else:
+                lines.extend(_emit_opamp(comp, tr, warnings, dangling, unit))
         return lines
     if comp.ctype in (ComponentType.NJFET, ComponentType.PJFET) \
             and len(comp.pins) >= 3:
@@ -1509,9 +1543,8 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
 
     if multi_pin:
         lines.append("% Multi-pin components")
-        # Nets with fewer than two pins are dangling: optional pins (op-amp
-        # supplies, gate power) on them get no lead drawn.
-        dangling = {net.net_id for net in graph.nets if len(net.pins) < 2}
+        dangling = {net.net_id for net in graph.nets
+                    if len(net.pins) < 2 and net.kind == NetKind.ANONYMOUS}
         for comp in multi_pin:
             lines.extend(
                 _emit_component(comp, tr, warnings, dangling, fallbacks,
