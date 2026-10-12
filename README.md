@@ -85,6 +85,10 @@ The main window walkthrough, top to bottom:
      default; see [Loop currents](#loop-currents).
    - **Show units on values** (Alt+U): write the unit after each value on
      the drawing (`1` becomes `1 H` on an inductor, `22n` becomes `22 nF`).
+   - **Description detail** (Alt+D): *Short*, *Standard* or *Detailed*
+     (the default) alt text.
+   - **Netlists** (Alt+N): also write a SPICE deck, a KiCad netlist, a
+     readable net table, a CSV, or all four. *None* by default.
 3. **Output Folder** — defaults to an `accessible` folder next to the input
    file; click **Choose...** (Alt+H) to change it.
 4. **Generate** (Alt+G) — runs the conversion in the background. The button
@@ -113,11 +117,7 @@ Anything that did not convert is named explicitly, so a symbol never fails
 silently. Timings cover the translation itself; running LaTeX is an external
 tool and is reported separately.
 
-The GUI always writes the **detailed** description — there is no reason to
-hand a blind reader a shorter one. The CLI keeps `-d/--detail` for scripting
-when a terser summary is wanted.
-
-Your options (checkboxes, format, junction dots, output folder) are
+Your options (checkboxes, format, detail, netlists, output folder) are
 remembered between sessions.
 
 ### CLI

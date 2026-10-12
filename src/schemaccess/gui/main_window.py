@@ -46,14 +46,15 @@ from schemaccess.pipeline import PipelineOptions, PipelineResult, run_pipeline
 FORMAT_LABELS = ("PDF", "SVG", "PNG", "All")
 FORMAT_VALUES = {"PDF": "pdf", "SVG": "svg", "PNG": "png", "All": "all"}
 
-#: The GUI always produces the fullest description - there is no reason to
-#: hand a blind reader a shorter one - so the detail level is fixed rather
-#: than offered as a choice.  The CLI still exposes -d for scripting.
 GUI_DETAIL_LEVEL = "detailed"
 
 DETAIL_LABELS = ("Short", "Standard", "Detailed")
 DETAIL_VALUES = {"Short": "short", "Standard": "standard",
                  "Detailed": "detailed"}
+
+NETLIST_CHOICES = (("None", ""), ("SPICE (.cir)", "spice"),
+                   ("KiCad (.net)", "kicad"), ("Text table (.txt)", "text"),
+                   ("CSV (.csv)", "csv"), ("All four", "all"))
 
 _SETTINGS_ORG = "SchemAccess"
 _SETTINGS_APP = "SchemAccess"
@@ -80,6 +81,7 @@ def make_pipeline_options(
     show_loops: bool = False,
     show_units: bool = False,
     switch_style: str = "default",
+    netlist: str = "",
 ) -> PipelineOptions:
     """Translate GUI widget state into a :class:`PipelineOptions`.
 
@@ -100,6 +102,7 @@ def make_pipeline_options(
         show_loops=show_loops,
         show_units=show_units,
         switch_style=switch_style,
+        netlist_formats=(netlist,) if netlist else (),
     )
 
 
@@ -267,6 +270,30 @@ class MainWindow(QMainWindow):
         self.switch_label.setBuddy(self.switch_combo)
         self.switch_combo.currentIndexChanged.connect(self._on_option_toggled)
 
+        self.detail_label = QLabel("&Description detail:", options_group)
+        self.detail_combo = QComboBox(options_group)
+        self.detail_combo.addItems(list(DETAIL_LABELS))
+        self.detail_combo.setCurrentText("Detailed")
+        self.detail_combo.setAccessibleName("Description detail")
+        self.detail_combo.setAccessibleDescription(
+            "How much the alt text says. Short gives the counts and parts, "
+            "Standard adds how they connect, Detailed adds the detected "
+            "structures and every pin. Only used when Generate Alt Text is "
+            "checked.")
+        self.detail_label.setBuddy(self.detail_combo)
+
+        self.netlist_label = QLabel("&Netlists:", options_group)
+        self.netlist_combo = QComboBox(options_group)
+        for label, key in NETLIST_CHOICES:
+            self.netlist_combo.addItem(label, key)
+        self.netlist_combo.setAccessibleName("Netlists")
+        self.netlist_combo.setAccessibleDescription(
+            "Also write a netlist: a SPICE deck, a KiCad netlist, a "
+            "readable net table, a CSV with one row per pin, or all four. "
+            "None writes no netlist.")
+        self.netlist_label.setBuddy(self.netlist_combo)
+        self.netlist_combo.currentIndexChanged.connect(self._on_option_toggled)
+
         options_layout.addWidget(self.alt_text_check, 0, 0)
         options_layout.addWidget(self.image_check, 0, 1)
         options_layout.addWidget(self.format_label, 1, 0)
@@ -276,6 +303,10 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(self.units_check, 4, 0, 1, 2)
         options_layout.addWidget(self.switch_label, 5, 0)
         options_layout.addWidget(self.switch_combo, 5, 1)
+        options_layout.addWidget(self.detail_label, 6, 0)
+        options_layout.addWidget(self.detail_combo, 6, 1)
+        options_layout.addWidget(self.netlist_label, 7, 0)
+        options_layout.addWidget(self.netlist_combo, 7, 1)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -426,6 +457,12 @@ class MainWindow(QMainWindow):
         style = str(s.value("options/switch_style", "default"))
         index = self.switch_combo.findData(style)
         self.switch_combo.setCurrentIndex(max(index, 0))
+        detail = str(s.value("options/detail_level", "Detailed", type=str))
+        if detail in DETAIL_LABELS:
+            self.detail_combo.setCurrentText(detail)
+        net = str(s.value("options/netlist", "", type=str))
+        self.netlist_combo.setCurrentIndex(
+            max(self.netlist_combo.findData(net), 0))
 
     def _save_settings(self) -> None:
         """Persist UI state to QSettings."""
@@ -441,6 +478,8 @@ class MainWindow(QMainWindow):
         s.setValue("options/show_units", self.units_check.isChecked())
         s.setValue("options/switch_style",
                    self.switch_combo.currentData() or "default")
+        s.setValue("options/detail_level", self.detail_combo.currentText())
+        s.setValue("options/netlist", self.netlist_combo.currentData() or "")
         s.sync()
 
     # --------------------------------------------------------- interactions
@@ -485,12 +524,16 @@ class MainWindow(QMainWindow):
         image_on = self.image_check.isChecked()
         self.format_combo.setEnabled(image_on)
         self.format_label.setEnabled(image_on)
+        alt_on = self.alt_text_check.isChecked()
+        self.detail_combo.setEnabled(alt_on)
+        self.detail_label.setEnabled(alt_on)
 
     def _update_generate_enabled(self) -> None:
         """Generate needs an input file and at least one output selected."""
         has_input = bool(self.input_edit.text())
         any_output = (self.alt_text_check.isChecked()
-                      or self.image_check.isChecked())
+                      or self.image_check.isChecked()
+                      or bool(self.netlist_combo.currentData()))
         self.generate_button.setEnabled(has_input and any_output)
 
     def current_options(self) -> PipelineOptions:
@@ -501,10 +544,12 @@ class MainWindow(QMainWindow):
             generate_alt_text=self.alt_text_check.isChecked(),
             generate_image=self.image_check.isChecked(),
             export_format_label=self.format_combo.currentText(),
+            detail_label=self.detail_combo.currentText(),
             junction_dots=self.junction_check.isChecked(),
             show_loops=self.loops_check.isChecked(),
             show_units=self.units_check.isChecked(),
             switch_style=self.switch_combo.currentData() or "default",
+            netlist=self.netlist_combo.currentData() or "",
         )
 
     # ------------------------------------------------------------- pipeline

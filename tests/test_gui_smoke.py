@@ -59,16 +59,22 @@ def test_gui_generate_button_exists_and_starts_disabled(window) -> None:
     assert not button.isEnabled()
 
 
-def test_gui_has_no_detail_choice(window):
-    """The GUI always writes the detailed description, so there is no
-    detail dropdown to get wrong."""
-    from schemaccess.gui.main_window import GUI_DETAIL_LEVEL
-
-    assert not hasattr(window, "detail_combo")
-    assert not hasattr(window, "detail_label")
+def test_gui_detail_defaults_to_detailed_and_can_change(window):
     window.input_edit.setText("board.kicad_sch")
-    assert window.current_options().detail_level == GUI_DETAIL_LEVEL
-    assert GUI_DETAIL_LEVEL == "detailed"
+    window.detail_combo.setCurrentText("Detailed")
+    assert window.current_options().detail_level == "detailed"
+    window.detail_combo.setCurrentText("Short")
+    assert window.current_options().detail_level == "short"
+
+
+def test_gui_netlist_choice_reaches_the_pipeline(window):
+    window.input_edit.setText("board.kicad_sch")
+    window.netlist_combo.setCurrentIndex(window.netlist_combo.findData(""))
+    assert window.current_options().netlist_formats == ()
+    window.netlist_combo.setCurrentIndex(window.netlist_combo.findData("spice"))
+    assert window.current_options().netlist_formats == ("spice",)
+    window.netlist_combo.setCurrentIndex(window.netlist_combo.findData("all"))
+    assert window.current_options().netlist_formats == ("all",)
 
 
 def test_gui_shows_a_conversion_summary(window):
