@@ -60,6 +60,26 @@ NETLIST_CHOICES = (("None", ""), ("SPICE (.cir)", "spice"),
                    ("KiCad (.net)", "kicad"), ("Text table (.txt)", "text"),
                    ("CSV (.csv)", "csv"), ("All four", "all"))
 
+#: The Generate button is the main action, so it is large and blue.
+#: White on #0b5cd5 is 6:1 contrast; the amber focus ring stands out
+#: against both the blue and light or dark window backgrounds (a style
+#: sheet replaces the native macOS focus ring, so one is drawn here).
+GENERATE_BUTTON_STYLE = """
+QPushButton {
+    background-color: #0b5cd5;
+    color: #ffffff;
+    border: 3px solid transparent;
+    border-radius: 8px;
+    font-size: 15px;
+    font-weight: bold;
+    padding: 6px 20px;
+}
+QPushButton:hover { background-color: #0a4fb8; }
+QPushButton:pressed { background-color: #083f94; }
+QPushButton:focus { border-color: #ffbf47; }
+QPushButton:disabled { background-color: #6b7685; color: #dde2e8; }
+"""
+
 _SETTINGS_ORG = "SchemAccess"
 _SETTINGS_APP = "SchemAccess"
 
@@ -394,7 +414,9 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(folder_group)
 
         # -- GENERATE --------------------------------------------------------
-        self.generate_button = QPushButton("&Generate", self._controls)
+        self.generate_button = QPushButton("&Generate", central)
+        self.generate_button.setStyleSheet(GENERATE_BUTTON_STYLE)
+        self.generate_button.setMinimumHeight(42)
         self.generate_button.setDefault(True)
         self.generate_button.setAutoDefault(True)
         self.generate_button.setAccessibleName("Generate outputs")
@@ -403,7 +425,6 @@ class MainWindow(QMainWindow):
             "selected alt text and image outputs. Enabled once an input "
             "file is selected and at least one output option is checked.")
         self.generate_button.clicked.connect(self._on_generate)
-        controls_layout.addWidget(self.generate_button)
 
         left.addWidget(self._controls)
 
@@ -421,6 +442,7 @@ class MainWindow(QMainWindow):
         progress_layout.addWidget(self.progress_label)
         progress_layout.addWidget(self.progress_log)
         left.addWidget(progress_group, 1)
+        left.addWidget(self.generate_button)
         outer.addLayout(left, 1)
 
         # -- RESULTS ---------------------------------------------------------
@@ -660,7 +682,12 @@ class MainWindow(QMainWindow):
         self._controls.setEnabled(not running)
         self.open_folder_button.setEnabled(not running)
         if running:
+            self.generate_button.setEnabled(False)
+            self.generate_button.setText("Generating...")
             self.statusBar().showMessage("Generating...")
+        else:
+            self.generate_button.setText("&Generate")
+            self._update_generate_enabled()
 
     @Slot(str)
     def _append_progress(self, line: str) -> None:
