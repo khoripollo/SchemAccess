@@ -66,7 +66,8 @@ schemaccess-gui
 (or `python -m schemaccess.gui.app` if the scripts directory is not on your
 `PATH`).
 
-The main window walkthrough, top to bottom:
+The main window has two columns: settings and progress on the left,
+results on the right. In tab order:
 
 1. **Input** — Click **Browse...** (Alt+B) to pick a `.kicad_sch` file, or
    simply drag and drop one anywhere onto the window. The read-only *Input
@@ -98,8 +99,9 @@ The main window walkthrough, top to bottom:
    the paths of produced files. Every line is mirrored to the status bar so
    screen readers announce it.
 6. **Results** — a **Conversion summary** (Alt+V), the generated alt text in
-   a read-only, screen-reader friendly text area, a scaled preview of the PNG
-   (when one was rendered) whose accessible description *is* the alt text,
+   a read-only, screen-reader friendly text area, a preview of the PNG
+   (when one was rendered), scaled to fit so the whole drawing is always
+   visible, whose accessible description *is* the alt text,
    and an **Open Output Folder** button (Alt+O).
 
 The conversion summary looks like this:

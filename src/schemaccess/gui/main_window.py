@@ -15,7 +15,8 @@ import subprocess
 import sys
 from typing import Optional
 
-from PySide6.QtCore import QObject, QSettings, Qt, QThread, Signal, Slot
+from PySide6.QtCore import (QObject, QSettings, QSize, Qt, QThread, Signal,
+                            Slot)
 from PySide6.QtGui import (
     QCloseEvent,
     QDragEnterEvent,
@@ -27,6 +28,7 @@ from PySide6.QtWidgets import (
     QCheckBox,
     QComboBox,
     QFileDialog,
+    QFrame,
     QGridLayout,
     QGroupBox,
     QHBoxLayout,
@@ -36,6 +38,8 @@ from PySide6.QtWidgets import (
     QMessageBox,
     QPlainTextEdit,
     QPushButton,
+    QScrollArea,
+    QSizePolicy,
     QVBoxLayout,
     QWidget,
 )
@@ -136,6 +140,55 @@ class PipelineWorker(QObject):
             self.finished.emit(result)
 
 
+class PreviewLabel(QLabel):
+    """A label that always shows its whole image, scaled to fit.
+
+    The full-resolution pixmap is kept and re-scaled (aspect ratio kept)
+    every time the label is resized, so the drawing is never cropped
+    however much room the layout gives it.  The size hints are fixed
+    rather than taken from the pixmap, so the image never forces the
+    window to grow.
+    """
+
+    def __init__(self, parent: Optional[QWidget] = None) -> None:
+        super().__init__(parent)
+        self._source: Optional[QPixmap] = None
+        self.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        self.setSizePolicy(QSizePolicy.Policy.Ignored,
+                           QSizePolicy.Policy.Expanding)
+
+    def sizeHint(self) -> QSize:  # noqa: N802
+        return QSize(560, 300)
+
+    def minimumSizeHint(self) -> QSize:  # noqa: N802
+        return QSize(0, 200)
+
+    def setSourcePixmap(self, pixmap: QPixmap) -> None:  # noqa: N802
+        """Show *pixmap*, scaled to fit the label's current size."""
+        self._source = pixmap
+        self._rescale()
+
+    def clear(self) -> None:
+        self._source = None
+        super().clear()
+
+    def resizeEvent(self, event) -> None:  # noqa: N802
+        super().resizeEvent(event)
+        self._rescale()
+
+    def _rescale(self) -> None:
+        if self._source is None or self._source.isNull():
+            return
+        # Scale in device pixels so the drawing stays sharp on Retina.
+        ratio = self.devicePixelRatioF()
+        scaled = self._source.scaled(
+            self.contentsRect().size() * ratio,
+            Qt.AspectRatioMode.KeepAspectRatio,
+            Qt.TransformationMode.SmoothTransformation)
+        scaled.setDevicePixelRatio(ratio)
+        self.setPixmap(scaled)
+
+
 class MainWindow(QMainWindow):
     """SchemAccess main window: pick a schematic, choose outputs, generate."""
 
@@ -152,6 +205,7 @@ class MainWindow(QMainWindow):
         self._worker: Optional[PipelineWorker] = None
 
         self._build_ui()
+        self._fit_to_screen()
         self._restore_settings()
         self._update_dependent_widgets()
         self._update_generate_enabled()
@@ -163,7 +217,10 @@ class MainWindow(QMainWindow):
     def _build_ui(self) -> None:
         """Create all widgets, wiring, accessibility metadata and tab order."""
         central = QWidget(self)
-        outer = QVBoxLayout(central)
+        # Two columns: settings and progress on the left, results on the
+        # right, so the preview image gets the full window height.
+        outer = QHBoxLayout(central)
+        left = QVBoxLayout()
 
         # -- controls container (disabled as a block while running) -------
         self._controls = QWidget(central)
@@ -348,7 +405,7 @@ class MainWindow(QMainWindow):
         self.generate_button.clicked.connect(self._on_generate)
         controls_layout.addWidget(self.generate_button)
 
-        outer.addWidget(self._controls)
+        left.addWidget(self._controls)
 
         # -- PROGRESS --------------------------------------------------------
         progress_group = QGroupBox("Progress", central)
@@ -363,7 +420,8 @@ class MainWindow(QMainWindow):
         self.progress_label.setBuddy(self.progress_log)
         progress_layout.addWidget(self.progress_label)
         progress_layout.addWidget(self.progress_log)
-        outer.addWidget(progress_group, 1)
+        left.addWidget(progress_group, 1)
+        outer.addLayout(left, 1)
 
         # -- RESULTS ---------------------------------------------------------
         results_group = QGroupBox("Results", central)
@@ -392,9 +450,7 @@ class MainWindow(QMainWindow):
             "readers.")
         self.results_label.setBuddy(self.results_edit)
 
-        self.preview_label = QLabel(results_group)
-        self.preview_label.setAlignment(
-            Qt.AlignmentFlag.AlignHCenter | Qt.AlignmentFlag.AlignVCenter)
+        self.preview_label = PreviewLabel(results_group)
         self.preview_label.setAccessibleName("Schematic image preview")
         self.preview_label.setVisible(False)
 
@@ -409,11 +465,18 @@ class MainWindow(QMainWindow):
         results_layout.addWidget(self.summary_edit)
         results_layout.addWidget(self.results_label)
         results_layout.addWidget(self.results_edit, 1)
-        results_layout.addWidget(self.preview_label)
+        results_layout.addWidget(self.preview_label, 2)
         results_layout.addWidget(self.open_folder_button)
         outer.addWidget(results_group, 1)
 
-        self.setCentralWidget(central)
+        # Scroll rather than squeeze: on a short screen (a laptop) the
+        # content is taller than the window, and squeezing it would crop
+        # the preview image and the text areas.
+        scroll = QScrollArea(self)
+        scroll.setWidget(central)
+        scroll.setWidgetResizable(True)
+        scroll.setFrameShape(QFrame.Shape.NoFrame)
+        self.setCentralWidget(scroll)
 
         # -- logical tab order -----------------------------------------------
         QWidget.setTabOrder(self.input_edit, self.browse_button)
@@ -431,6 +494,16 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.progress_log, self.summary_edit)
         QWidget.setTabOrder(self.summary_edit, self.results_edit)
         QWidget.setTabOrder(self.results_edit, self.open_folder_button)
+
+    def _fit_to_screen(self) -> None:
+        """Open tall enough for the preview, but no taller than the
+        screen."""
+        screen = self.screen()
+        if screen is None:
+            return
+        available = screen.availableGeometry()
+        self.resize(min(1280, available.width()),
+                    max(self.minimumHeight(), available.height() - 40))
 
     # ------------------------------------------------------------ settings
 
@@ -658,7 +731,7 @@ class MainWindow(QMainWindow):
             self._thread = None
 
     def _show_preview(self, image_path: str, alt_text: str) -> None:
-        """Display a scaled preview of the drawing, with the alt text.
+        """Display the whole drawing, scaled to fit, with the alt text.
 
         Accepts a raster image or an SVG: Qt cannot put an SVG straight
         into a QPixmap, so one is rendered through QSvgRenderer first.
@@ -671,11 +744,7 @@ class MainWindow(QMainWindow):
             self._append_progress(
                 f"Warning: could not load preview image {image_path}")
             return
-        scaled = pixmap.scaled(
-            560, 300,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation)
-        self.preview_label.setPixmap(scaled)
+        self.preview_label.setSourcePixmap(pixmap)
         description = alt_text or f"Rendered schematic image {image_path}"
         self.preview_label.setAccessibleDescription(description)
         self.preview_label.setToolTip(description)
@@ -717,6 +786,8 @@ class MainWindow(QMainWindow):
         try:
             if sys.platform.startswith("win"):
                 os.startfile(folder)  # noqa: S606 - opening a folder
+            elif sys.platform == "darwin":
+                subprocess.Popen(["open", folder])  # noqa: S603, S607
             else:
                 subprocess.Popen(["xdg-open", folder])  # noqa: S603, S607
         except OSError as exc:
