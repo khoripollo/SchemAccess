@@ -171,6 +171,15 @@ _SPDT_OUT_DY = 0.315
 _SWITCH_ARROW_STYLE = "-{Latex[length=3.6pt,width=3pt]}, line width=0.8pt"
 
 _TR_CHANNEL_Y = 0.77
+#: How far the control lead reaches from the node centre (measured: the B/G
+#: anchor sits at -23.9pt = -0.84cm).  The shape's 'east' anchor coincides
+#: with its centre, so the body lies entirely on the control lead's side and
+#: the opposite side is the clear one to caption into.
+_TR_CONTROL_X = 0.84
+#: Gap between the channel lead and the reference label.  The label goes
+#: beside the symbol rather than above it: above sits on the collector /
+#: drain lead, which is usually a wire, and the two collide.
+_TR_LABEL_GAP = 0.14
 _XFMR_ANCHOR = 1.0495
 
 # ---------------------------------------------------------------------------
@@ -1065,7 +1074,14 @@ def _emit_transistor(comp: Component, tr: _Transform,
     if flipped:
         options.append("yscale=-1")
     lines = [f"\\node[{', '.join(options)}] ({name}) at {_xy(cx, cy)} {{}};"]
-    lines.extend(_label_node(comp, cx, cy + _TR_CHANNEL_Y + 0.15))
+    # Caption the side the body does not occupy.  The control lead runs to
+    # the left of the node centre (to the right once mirrored), so the far
+    # side of the channel line is clear; putting the label above instead
+    # lands it on the collector/drain lead, which is normally a wire.
+    if mirrored:
+        lines.extend(_label_node(comp, cx - _TR_LABEL_GAP, cy, "east"))
+    else:
+        lines.extend(_label_node(comp, cx + _TR_LABEL_GAP, cy, "west"))
 
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
@@ -1270,13 +1286,14 @@ def _box_label(comp: Component) -> str:
     return " ".join(parts)
 
 
-def _label_node(comp: Component, x: float, y: float) -> List[str]:
+def _label_node(comp: Component, x: float, y: float,
+                anchor: str = "south") -> List[str]:
     """Caption node for a multi-pin symbol, or nothing at all when KiCad
     hides both its Reference and Value fields."""
     text = _box_label(comp)
     if not text:
         return []
-    return [f"\\node[font=\\small, anchor=south] at {_xy(x, y)} {{{text}}};"]
+    return [f"\\node[font=\\small, anchor={anchor}] at {_xy(x, y)} {{{text}}};"]
 
 
 _SUPPLY_PIN_NAMES = {"v+", "v-", "vcc", "vdd", "vee", "vss", "gnd"}
