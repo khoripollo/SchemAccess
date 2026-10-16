@@ -18,6 +18,7 @@ by ``(tex_path, mtime)`` so an ``svg``/``png`` render immediately following a
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import subprocess
 import sys
@@ -35,8 +36,71 @@ _LOG_CONTEXT_LINES = 4
 _MAX_ERROR_LINES = 40
 
 
+#: Resolution a PNG is rendered at when the page is small enough to allow it.
+_PNG_DPI = 300
+
+#: Cairo refuses to allocate an image surface larger than 32767 px on a side,
+#: and pdftocairo reports that as "invalid value (typically too big) for the
+#: size of the input", leaves a zero-byte file behind and exits 2.  A wide
+#: schematic reaches that at 300 dpi surprisingly early - 32767 / 300 is only
+#: 109 inches - so the dpi is lowered to fit instead of letting the convert
+#: fail.  The margin covers pdftocairo rounding the pixel count up.
+_PNG_MAX_PIXELS = 32000
+
+#: Never drop below this: past here the result is too coarse to read, and a
+#: clear error beats a useless image.
+_PNG_MIN_DPI = 50
+
+#: ``/MediaBox [llx lly urx ury]`` - the page size in PostScript points.
+_MEDIABOX_RE = re.compile(rb"/MediaBox\s*\[\s*([-\d.]+)\s+([-\d.]+)\s+"
+                          rb"([-\d.]+)\s+([-\d.]+)\s*\]")
+
 #: Name the converters write to before the result is moved into place.
 _SCRATCH_SUFFIX = ".schemaccess-part"
+
+
+def _page_size_pt(pdf_path: str) -> Optional[Tuple[float, float]]:
+    """Width and height of *pdf_path*'s first page, in points.
+
+    Read straight out of the file: pdflatex writes ``/MediaBox`` uncompressed,
+    and this saves a dependency on ``pdfinfo`` just to size one image.
+    Returns ``None`` when the box cannot be found, which leaves the caller on
+    its default resolution.
+    """
+    try:
+        with open(pdf_path, "rb") as handle:
+            data = handle.read()
+    except OSError:
+        return None
+    match = _MEDIABOX_RE.search(data)
+    if match is None:
+        return None
+    llx, lly, urx, ury = (float(v) for v in match.groups())
+    width, height = abs(urx - llx), abs(ury - lly)
+    if width <= 0 or height <= 0:
+        return None
+    return width, height
+
+
+def _png_dpi(pdf_path: str) -> Tuple[int, Optional[str]]:
+    """Pick a render resolution that keeps the raster inside cairo's limit.
+
+    Returns the dpi and, when it had to be reduced, a note explaining why so
+    the caller can pass it on rather than silently handing back a softer
+    image than asked for.
+    """
+    size = _page_size_pt(pdf_path)
+    if size is None:
+        return _PNG_DPI, None
+    longest_in = max(size) / 72.0
+    if longest_in * _PNG_DPI <= _PNG_MAX_PIXELS:
+        return _PNG_DPI, None
+    dpi = max(_PNG_MIN_DPI, int(_PNG_MAX_PIXELS / longest_in))
+    note = (f"the drawing is {longest_in:.0f} in across, so the PNG was "
+            f"rendered at {dpi} dpi instead of {_PNG_DPI} to stay inside the "
+            f"image converter's {_PNG_MAX_PIXELS} px limit; the PDF and SVG "
+            f"outputs are unaffected")
+    return dpi, note
 
 #: How hard to try moving a finished image onto its final name.
 _REPLACE_ATTEMPTS = 4
@@ -85,6 +149,9 @@ class Renderer:
             ``dvisvgm``, ``pdftoppm``) to its resolved executable path, or
             ``None`` when the tool is not on ``PATH``.  Populated once at
             construction time; useful for diagnostics.
+        notes: Non-fatal remarks about renders performed so far - currently
+            only a reduced PNG resolution.  A caller that wants to show them
+            reads the list after :meth:`render`; ignoring it is harmless.
     """
 
     _TOOL_NAMES = ("pdflatex", "pdftocairo", "dvisvgm", "pdftoppm")
@@ -93,6 +160,7 @@ class Renderer:
         self.tools: Dict[str, Optional[str]] = {
             name: shutil.which(name) for name in self._TOOL_NAMES
         }
+        self.notes: List[str] = []
         # (abs tex path, mtime_ns, abs output dir) -> abs pdf path
         self._pdf_cache: Dict[Tuple[str, int, str], str] = {}
 
@@ -251,21 +319,28 @@ class Renderer:
         return svg_path
 
     def _pdf_to_png(self, pdf_path: str) -> str:
-        """Convert *pdf_path* to a 300 dpi PNG and return the PNG path."""
+        """Convert *pdf_path* to a PNG and return the PNG path.
+
+        Renders at 300 dpi, or less for a page wide enough that 300 dpi would
+        exceed the converter's maximum image size.
+        """
         base = os.path.splitext(pdf_path)[0]
         png_path = base + ".png"
         # Convert to a scratch name and move it into place, rather than
         # letting the converter create the final file: see _replace_file.
         scratch = base + _SCRATCH_SUFFIX
+        dpi, note = _png_dpi(pdf_path)
+        if note:
+            self.notes.append(note)
         pdftocairo = self.tools.get("pdftocairo")
         pdftoppm = self.tools.get("pdftoppm")
         if pdftocairo:
             tool_name = "pdftocairo"
-            cmd = [pdftocairo, "-png", "-r", "300", "-singlefile",
+            cmd = [pdftocairo, "-png", "-r", str(dpi), "-singlefile",
                    pdf_path, scratch]
         elif pdftoppm:
             tool_name = "pdftoppm"
-            cmd = [pdftoppm, "-png", "-r", "300", "-singlefile",
+            cmd = [pdftoppm, "-png", "-r", str(dpi), "-singlefile",
                    pdf_path, scratch]
         else:
             raise RenderError(
@@ -274,6 +349,13 @@ class Renderer:
             )
         proc = self._run(cmd)
         if proc.returncode != 0:
+            # A converter that gave up partway still created its output file.
+            # Clear it so a stale zero-byte PNG is not left in the folder.
+            for suffix in (".png", "-1.png", "-01.png", "-001.png"):
+                try:
+                    os.remove(scratch + suffix)
+                except OSError:
+                    pass
             raise RenderError(
                 f"{tool_name} failed (exit code {proc.returncode}): "
                 + self._tool_output_tail(proc)
