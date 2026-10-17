@@ -828,12 +828,59 @@ def _xy_str(point) -> str:
 
 def test_fun4_p_type_transistor_flipped_to_match_kicad():
     """circuitikz's p-type shapes carry the collector/drain at the bottom;
-    KiCad's Q2 has it on top, so the node must be flipped vertically."""
+    KiCad's Q2 has it on top, so the node must be turned over.
+
+    Asserted through the geometry rather than the option string: a vertical
+    flip can be spelled ``yscale=-1`` or, equivalently, as a half turn plus
+    a mirror (``rotate=180, xscale=-1``), and which one the placement code
+    reaches for is its own business.  What must hold is that the shape ends
+    up inverted relative to the n-type one beside it, and that neither is
+    turned onto its side."""
     tex = circuitikz.generate(_mixed())
     pnp = next(ln for ln in tex.splitlines() if "pnp" in ln)
-    assert "yscale=-1" in pnp, pnp
     npn = next(ln for ln in tex.splitlines() if "[npn" in ln)
-    assert "yscale" not in npn, npn
+    assert _upright(npn), npn
+    assert _upright(pnp), pnp
+    assert _flipped(pnp) and not _flipped(npn), (pnp, npn)
+
+
+def _node_transform(node_line: str):
+    """The (angle, x mirror, y mirror) a ``\\node[...]`` line applies."""
+    import re
+
+    opts = node_line[node_line.index("[") + 1:node_line.index("]")]
+    angle, mx, my = 0.0, 1.0, 1.0
+    for opt in (o.strip() for o in opts.split(",")):
+        if opt.startswith("rotate="):
+            angle = float(opt.split("=", 1)[1])
+        elif re.fullmatch(r"xscale=-?[\d.]+", opt):
+            mx = float(opt.split("=", 1)[1])
+        elif re.fullmatch(r"yscale=-?[\d.]+", opt):
+            my = float(opt.split("=", 1)[1])
+    return angle, mx, my
+
+
+def _shape_axis(node_line: str):
+    """Where the shape's own +y axis points once the node is placed."""
+    import math
+
+    angle, mx, my = _node_transform(node_line)
+    rad = math.radians(angle)
+    # The mirrors apply in the shape's frame, the rotation after them.
+    x, y = 0.0 * mx, 1.0 * (1.0 if my > 0 else -1.0)
+    return (x * math.cos(rad) - y * math.sin(rad),
+            x * math.sin(rad) + y * math.cos(rad))
+
+
+def _upright(node_line: str) -> bool:
+    """True when the symbol still stands on a vertical axis."""
+    ax, ay = _shape_axis(node_line)
+    return abs(ay) > abs(ax)
+
+
+def _flipped(node_line: str) -> bool:
+    """True when the shape's +y ends up pointing down the page."""
+    return _shape_axis(node_line)[1] < 0
 
 
 # ---------------------------------------------------------------------------

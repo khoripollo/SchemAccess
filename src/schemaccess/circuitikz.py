@@ -123,6 +123,113 @@ def _opamp_edge_y(local_x: float) -> float:
     slope = (0.0 - ay) / (_OPAMP_BODY_X - ax)
     return max(ay + slope * (local_x - ax), 0.0)
 
+
+class _NodeFrame:
+    """Where a circuitikz *node* shape is placed on the sheet.
+
+    A bipole is positioned by its two endpoints, so circuitikz works its
+    angle out for us.  A node is the other way round: its anchors are fixed
+    in the shape's own coordinates and we choose where to put the shape, so
+    a symbol KiCad placed rotated only comes out rotated if we say so.  This
+    holds that choice - rotation, optional mirror, uniform scale and centre
+    - and converts between the shape's frame and the sheet's.
+
+    Measured against circuitikz 1.7 by probing the anchors of
+    ``[op amp]``, ``[op amp, rotate=90]`` and
+    ``[op amp, rotate=90, xscale=-1]``: listing ``rotate`` before ``xscale``
+    composes as ``R(angle) . mirror``, i.e. the shape is mirrored in its own
+    x axis first and then turned.
+    """
+
+    __slots__ = ("cx", "cy", "angle", "mirror", "scale", "_cos", "_sin")
+
+    def __init__(self, cx: float, cy: float, angle: float = 0.0,
+                 mirror: int = 1, scale: float = 1.0) -> None:
+        self.cx, self.cy = cx, cy
+        self.angle = angle % 360.0
+        self.mirror = mirror
+        self.scale = scale
+        radians = math.radians(self.angle)
+        self._cos, self._sin = math.cos(radians), math.sin(radians)
+
+    def place(self, lx: float, ly: float) -> Point:
+        """Where the shape's own (*lx*, *ly*) lands on the sheet."""
+        x, y = self.mirror * lx * self.scale, ly * self.scale
+        return (self.cx + x * self._cos - y * self._sin,
+                self.cy + x * self._sin + y * self._cos)
+
+    def local(self, px: float, py: float) -> Point:
+        """The inverse of :meth:`place`: a sheet point in shape coordinates."""
+        dx, dy = px - self.cx, py - self.cy
+        x = dx * self._cos + dy * self._sin
+        y = -dx * self._sin + dy * self._cos
+        return (self.mirror * x / self.scale, y / self.scale)
+
+    @property
+    def across(self) -> Point:
+        """The shape's own +x direction, as a unit vector on the sheet."""
+        return (self._cos, self._sin)
+
+    @property
+    def along(self) -> Point:
+        """The shape's own +y direction, as a unit vector on the sheet."""
+        return (-self._sin, self._cos)
+
+    def options(self) -> List[str]:
+        """The TikZ options realising this frame, in composition order."""
+        opts: List[str] = []
+        if round(self.angle) % 360:
+            opts.append(f"rotate={_fmt(self.angle)}")
+        if self.mirror < 0:
+            opts.append(f"xscale={_fmt(-self.scale)}")
+            if abs(self.scale - 1.0) > 1e-3:
+                opts.append(f"yscale={_fmt(self.scale)}")
+        elif abs(self.scale - 1.0) > 1e-3:
+            opts.append(f"xscale={_fmt(self.scale)}")
+            opts.append(f"yscale={_fmt(self.scale)}")
+        return opts
+
+    def lead(self, anchor_pos: Point, pin_pos: Point,
+             leaving: Point) -> str:
+        """The path operator joining an anchor to its pin.
+
+        ``--`` whenever the two already line up; otherwise the lead leaves
+        the body along *leaving* and turns once, so the bend reads as part
+        of the pin's own lead rather than a kink out in the wiring.
+        """
+        (ax, ay), (px, py) = anchor_pos, pin_pos
+        if abs(px - ax) < 5e-3 or abs(py - ay) < 5e-3:
+            return "--"
+        return "|-" if abs(leaving[1]) > abs(leaving[0]) else "-|"
+
+
+def _snap_axis(dx: float, dy: float) -> Point:
+    """*dx*, *dy* reduced to the nearest of the four axis directions."""
+    if abs(dx) >= abs(dy):
+        return (math.copysign(1.0, dx), 0.0)
+    return (0.0, math.copysign(1.0, dy))
+
+
+def _frame_angle(dx: float, dy: float, local: Point) -> float:
+    """Rotation turning the shape's *local* axis onto the (*dx*, *dy*) one.
+
+    Both are snapped to a right angle first: KiCad only ever places symbols
+    at multiples of 90 degrees, and snapping keeps a pin that is a rounding
+    error off the grid from tilting the whole symbol.
+    """
+    ux, uy = _snap_axis(dx, dy)
+    lx, ly = local
+    # Solve R(t) . local = (ux, uy) for t.
+    return math.degrees(math.atan2(uy * lx - ux * ly,
+                                   ux * lx + uy * ly)) % 360.0
+
+
+def _side_anchor(dx: float, dy: float) -> str:
+    """The text anchor that puts a label on the (*dx*, *dy*) side of a body."""
+    if abs(dx) >= abs(dy):
+        return "west" if dx > 0 else "east"
+    return "south" if dy > 0 else "north"
+
 # Measured circuitikz geometry at natural size (probed with \pgfgetlastxy
 # against circuitikz 1.7).  Per style: the control anchor (B/G), the two
 # channel anchors, the control anchor's y offset from the node centre, and
@@ -690,82 +797,103 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             if "out" not in matched.values():
                 matched[number] = "out"
 
-    # KiCad symbols may put the non-inverting input on top (e.g.
-    # Simulation_SPICE:OPAMP), or the symbol may be rotated/mirrored;
-    # circuitikz's default op amp has '-' on top.  Compare the true pin
-    # heights and flip the node so the anchor-to-pin leads never cross.
-    node_style = "op amp"
     plus_no = next((n for n, a in matched.items() if a == "+"), None)
     minus_no = next((n for n, a in matched.items() if a == "-"), None)
     out_no = next((n for n, a in matched.items() if a == "out"), None)
-    plus_y = minus_y = None
+
+    # Which way the amplifier faces, read off the pins rather than assumed.
+    # In the shape's own frame signal runs along +x, from the inputs out
+    # through the apex, so turning that onto the real inputs-to-output
+    # direction is the symbol's rotation.  Without it a KiCad part placed
+    # at 90 or 270 degrees would be drawn lying on its side, with its leads
+    # dog-legging around the triangle to reach it.
+    angle = 0.0
+    if out_no is not None and plus_no is not None and minus_no is not None:
+        ox, oy = tr.point(pins[out_no].position)
+        ix = (tr.point(pins[plus_no].position)[0]
+              + tr.point(pins[minus_no].position)[0]) / 2.0
+        iy = (tr.point(pins[plus_no].position)[1]
+              + tr.point(pins[minus_no].position)[1]) / 2.0
+        angle = _frame_angle(ox - ix, oy - iy, (1.0, 0.0))
+    probe = _NodeFrame(cx, cy, angle)
+    along, across = probe.along, probe.across
+
+    def axis(point: Point, unit: Point) -> float:
+        """*point* resolved along *unit*, measured from the sheet origin."""
+        return point[0] * unit[0] + point[1] * unit[1]
+
+    # circuitikz's default op amp carries '-' on its own +y side.  KiCad
+    # symbols vary (Simulation_SPICE:OPAMP puts '+' there), and a rotated
+    # part moves the inputs onto the other axis, so compare them along the
+    # shape's own axis and use the style variant when they are the other
+    # way up.
+    node_style = "op amp"
+    span = None
     if plus_no is not None and minus_no is not None:
-        plus_y = tr.point(pins[plus_no].position)[1]
-        minus_y = tr.point(pins[minus_no].position)[1]
-        if plus_y > minus_y:
+        plus_u = axis(tr.point(pins[plus_no].position), along)
+        minus_u = axis(tr.point(pins[minus_no].position), along)
+        span = abs(plus_u - minus_u)
+        if plus_u > minus_u:
             node_style = "op amp, noinv input up"
-    # Supply anchors likewise follow the actual pin geometry.
+
+    # Scaled UNIFORMLY (never stretched, so the triangle keeps its proper
+    # proportions) by just enough that the input anchors sit on the KiCad
+    # input pins.  The leads are then straight lines, exactly as in a
+    # hand-written circuitikz figure.
+    scale = OPAMP_SCALE
+    if scale is None:
+        scale = (min(max((span / 2.0) / _OPAMP_INPUT_HALF, 0.5), 2.5)
+                 if span is not None and span / 2.0 > 0.05 else 1.0)
+
+    # Centre: on the input midpoint across the signal axis, and on the
+    # symbol's own origin along it.
+    centre_u = (axis(tr.point(pins[plus_no].position), along)
+                + axis(tr.point(pins[minus_no].position), along)) / 2.0 \
+        if span is not None else axis((cx, cy), along)
+    centre_w = axis((cx, cy), across)
+    nx = centre_w * across[0] + centre_u * along[0]
+    ny = centre_w * across[1] + centre_u * along[1]
+    frame = _NodeFrame(nx, ny, angle, 1, scale)
+    node_style = ", ".join([node_style] + frame.options())
+
+    in_sign = 1.0 if "noinv input up" in node_style else -1.0
+
+    def anchor_at(anchor: str) -> Point:
+        """Where an input or output anchor ends up on the sheet."""
+        if anchor == "+":
+            return frame.place(-_OPAMP_ANCHOR_X, in_sign * _OPAMP_INPUT_HALF)
+        if anchor == "-":
+            return frame.place(-_OPAMP_ANCHOR_X, -in_sign * _OPAMP_INPUT_HALF)
+        return frame.place(_OPAMP_ANCHOR_X, 0.0)
+
+    # Supply anchors likewise follow the actual pin geometry: 'up' is the
+    # shape's own +y side, whichever way the symbol is turned.
     for number, anchor in list(matched.items()):
         if anchor in ("up", "down"):
-            pin_y = tr.point(pins[number].position)[1]
-            matched[number] = "up" if pin_y >= cy else "down"
-
-    # circuitikz's own 'op amp' shape, scaled UNIFORMLY (never stretched,
-    # so the triangle keeps its proper proportions) by just enough that
-    # its input anchors sit at the KiCad input-pin heights.  The leads
-    # into the inputs and the output are then straight horizontal lines,
-    # exactly as in a hand-written circuitikz figure.
-    mirrored = False
-    if out_no is not None and plus_no is not None and minus_no is not None:
-        out_x = tr.point(pins[out_no].position)[0]
-        in_x = (tr.point(pins[plus_no].position)[0]
-                + tr.point(pins[minus_no].position)[0]) / 2.0
-        mirrored = out_x < in_x
-
-    scale = OPAMP_SCALE
-    node_y = cy
-    if plus_y is not None and minus_y is not None:
-        if scale is None:  # match the KiCad input-pin spacing exactly
-            wanted = abs(plus_y - minus_y) / 2.0
-            scale = (min(max(wanted / _OPAMP_INPUT_HALF, 0.5), 2.5)
-                     if wanted > 0.05 else 1.0)
-        node_y = (plus_y + minus_y) / 2.0
-    if scale is None:
-        scale = 1.0
-    if abs(scale - 1.0) > 1e-3 or mirrored:
-        node_style += (f", xscale={_fmt(-scale if mirrored else scale)}"
-                       f", yscale={_fmt(scale)}")
-
-    def anchor_y(anchor: str) -> float:
-        """Absolute y of an input/output anchor after placement."""
-        if anchor == "+":
-            return node_y + _OPAMP_INPUT_HALF * scale * (
-                1.0 if "noinv input up" in node_style else -1.0)
-        if anchor == "-":
-            return node_y + _OPAMP_INPUT_HALF * scale * (
-                -1.0 if "noinv input up" in node_style else 1.0)
-        return node_y  # 'out' sits on the centre line
+            local_y = frame.local(*tr.point(pins[number].position))[1]
+            matched[number] = "up" if local_y >= 0 else "down"
 
     def supply_lead(pin: PinConnection, anchor: str) -> str:
-        """Lead from a supply pin to the body, vertical where possible -
-        the way KiCad draws V+/V- pin leads."""
+        """Lead from a supply pin to the body, square to the symbol - the
+        way KiCad draws V+/V- pin leads."""
         px, py = tr.point(pin.position)
-        local_x = (-(px - cx) if mirrored else (px - cx)) / scale
-        edge = _opamp_edge_y(local_x) * scale
-        edge_y = node_y + edge if anchor == "up" else node_y - edge
+        local_x, local_y = frame.local(px, py)
+        edge = _opamp_edge_y(local_x)
+        edge_y = edge if anchor == "up" else -edge
         inside = abs(local_x) < _OPAMP_BODY_X
-        if inside and ((anchor == "up" and py > edge_y)
-                       or (anchor == "down" and py < edge_y)):
-            return f"\\draw {_xy(px, py)} -- {_xy(px, edge_y)};"
-        # Pin sits outside the body outline: route vertically, then across.
-        return f"\\draw ({name}.{anchor}) |- {_xy(px, py)};"
+        if inside and ((anchor == "up" and local_y > edge_y)
+                       or (anchor == "down" and local_y < edge_y)):
+            return f"\\draw {_xy(px, py)} -- {_xy(*frame.place(local_x, edge_y))};"
+        # Pin sits outside the body outline: route square, then across.
+        joiner = "|-" if abs(along[1]) > abs(along[0]) else "-|"
+        return f"\\draw ({name}.{anchor}) {joiner} {_xy(px, py)};"
 
     # Put the label clear of the body and of anything wired above it.
-    label_y = max([node_y + 0.98 * scale]
+    label_y = max([ny + 0.98 * scale]
                   + [tr.point(p.position)[1] for p in pins.values()
                      if p.net_id >= 0 and p.net_id not in dangling])
-    lines = [f"\\node[{node_style}] ({name}) at {_xy(cx, node_y)} {{}};"]
-    lines.extend(_label_node(comp, cx, label_y + 0.25))
+    lines = [f"\\node[{node_style}] ({name}) at {_xy(nx, ny)} {{}};"]
+    lines.extend(_label_node(comp, nx, label_y + 0.25))
     for number in sorted(pins, key=_pin_sort_key):
         pin = pins[number]
         anchor = matched.get(number)
@@ -779,19 +907,21 @@ def _emit_opamp(comp: Component, tr: _Transform, warnings: List[str],
             # .center slashes a line right across the triangle.
             warnings.append(f"{comp.ref}: pin {number} ('{pin.name}') has "
                             f"no op-amp anchor; drawn as a stub on the body.")
-            side = "up" if tr.point(pin.position)[1] >= node_y else "down"
+            side = ("up" if frame.local(*tr.point(pin.position))[1] >= 0
+                    else "down")
             lines.append(supply_lead(pin, side))
         elif anchor in ("up", "down"):
             if unconnected:
                 continue  # supply pin left floating in the schematic
             lines.append(supply_lead(pin, anchor))
         else:
-            # Inputs and output: a straight horizontal lead when the anchor
-            # already sits at the pin's height, otherwise step vertically
-            # right at the symbol and then run across, so the bend reads as
-            # part of the pin lead rather than a kink out in the wiring.
-            py = tr.point(pin.position)[1]
-            joiner = "--" if abs(anchor_y(anchor) - py) < 5e-3 else "|-"
+            # Inputs and output: a straight lead when the anchor already
+            # lines up with the pin, otherwise step square to the symbol and
+            # then run across, so the bend reads as part of the pin lead
+            # rather than a kink out in the wiring.
+            at = anchor_at(anchor)
+            here = tr.point(pin.position)
+            joiner = frame.lead(at, here, along)
             lines.append(
                 f"\\draw ({name}.{anchor}) {joiner} {tr.coord(pin.position)};")
     return lines
@@ -1023,12 +1153,13 @@ def _emit_transistor(comp: Component, tr: _Transform,
                      warnings: List[str]) -> List[str]:
     """A circuitikz transistor node placed so its leads stay orthogonal.
 
-    circuitikz puts the channel anchors (C/E, D/S) on the node's centre
-    line and the control anchor (B/G) to its left; KiCad puts the channel
-    pins on a common vertical and the control pin on the opposite side.
-    Centring the node on the channel pins' x therefore makes the channel
-    leads vertical and the control lead horizontal - no diagonals, and the
-    symbol keeps circuitikz's natural size.
+    circuitikz puts the channel anchors (C/E, D/S) on the node's own centre
+    line and the control anchor (B/G) off to one side.  Rather than assume
+    KiCad drew it that way up, the symbol's two axes are read back off the
+    pins: the channel pins give the direction the shape's +y must point, so
+    a part KiCad placed rotated is turned to match, and the control pin then
+    says which side the body sits on.  Every lead stays orthogonal at any of
+    the four rotations, and the symbol keeps circuitikz's natural size.
     """
     style, control, first, second, ctrl_dy, first_dy = \
         _TRANSISTOR_STYLES[comp.ctype]
@@ -1049,39 +1180,45 @@ def _emit_transistor(comp: Component, tr: _Transform,
     first_pin, second_pin = by_anchor.get(first), by_anchor.get(second)
 
     cx, cy = tr.point(comp.position)
-    mirrored = False
-    flipped = False
+    frame = _NodeFrame(cx, cy)
     if first_pin is not None and second_pin is not None:
         fx, fy = tr.point(first_pin.position)
-        _sx, sy = tr.point(second_pin.position)
-        # Centre on the channel pins' x so their leads run straight down.
-        cx = fx
-        # circuitikz's p-type shapes carry their first channel terminal at
-        # the bottom; flip vertically when KiCad has it the other way up.
-        flipped = (fy > sy) != (first_dy > 0)
+        sx, sy = tr.point(second_pin.position)
+        # The channel runs from the second terminal to the first; in the
+        # shape's own frame that is straight up (or down for the p-type
+        # shapes, whose first terminal is the lower one).  Turning one onto
+        # the other is the symbol's rotation.
+        angle = _frame_angle(fx - sx, fy - sy, (0.0, 1.0 if first_dy > 0
+                                                else -1.0))
+        frame = _NodeFrame(cx, cy, angle)
+        across, along = frame.across, frame.along
+        # Across the channel the node sits on the channel pins themselves.
+        offset = (fx - cx) * across[0] + (fy - cy) * across[1]
+        cx, cy = cx + offset * across[0], cy + offset * across[1]
+        mirror = 1
         if ctrl_pin is not None:
-            # Place vertically so the control anchor lands on its own pin -
-            # this is what keeps a JFET's offset gate lead horizontal.
-            cy = tr.point(ctrl_pin.position)[1] - (
-                -ctrl_dy if flipped else ctrl_dy)
-            mirrored = tr.point(ctrl_pin.position)[0] > cx
+            gx, gy = tr.point(ctrl_pin.position)
+            # The control anchor lies on whichever side its pin does.
+            side = (gx - cx) * across[0] + (gy - cy) * across[1]
+            mirror = -1 if side > 0 else 1
+            # Along the channel, place so the control anchor lands on its
+            # own pin - this is what keeps a UJT's offset lead straight.
+            reach = ((gx - cx) * along[0] + (gy - cy) * along[1]) - ctrl_dy
         else:
-            cy = (fy + sy) / 2.0
+            reach = (((fx + sx) / 2.0 - cx) * along[0]
+                     + ((fy + sy) / 2.0 - cy) * along[1])
+        cx, cy = cx + reach * along[0], cy + reach * along[1]
+        frame = _NodeFrame(cx, cy, angle, mirror)
 
-    options = [style]
-    if mirrored:
-        options.append("xscale=-1")
-    if flipped:
-        options.append("yscale=-1")
+    options = [style] + frame.options()
     lines = [f"\\node[{', '.join(options)}] ({name}) at {_xy(cx, cy)} {{}};"]
-    # Caption the side the body does not occupy.  The control lead runs to
-    # the left of the node centre (to the right once mirrored), so the far
-    # side of the channel line is clear; putting the label above instead
-    # lands it on the collector/drain lead, which is normally a wire.
-    if mirrored:
-        lines.extend(_label_node(comp, cx - _TR_LABEL_GAP, cy, "east"))
-    else:
-        lines.extend(_label_node(comp, cx + _TR_LABEL_GAP, cy, "west"))
+    # Caption the side the body does not occupy.  The control lead leaves
+    # along the shape's -x, so the far side of the channel line is the clear
+    # one; putting the label above instead lands it on the collector/drain
+    # lead, which is normally a wire.
+    clear = frame.place(_TR_LABEL_GAP / frame.scale, 0.0)
+    lines.extend(_label_node(comp, clear[0], clear[1],
+                             _side_anchor(clear[0] - cx, clear[1] - cy)))
 
     for number in sorted(comp.pins, key=_pin_sort_key):
         pin = comp.pins[number]
@@ -1100,10 +1237,12 @@ def _emit_transistor(comp: Component, tr: _Transform,
             lines.append(f"\\draw {_xy(px, py)} -- {stub};")
             continue
         if anchor == control:
-            anchor_y = cy + (-ctrl_dy if flipped else ctrl_dy)
-            joiner = "--" if abs(py - anchor_y) < 5e-3 else "|-"
+            at = frame.place(-_TR_CONTROL_X, ctrl_dy)
+            leaving = frame.across
         else:
-            joiner = "--" if abs(px - cx) < 5e-3 else "-|"
+            at = frame.place(0.0, first_dy if anchor == first else -first_dy)
+            leaving = frame.along
+        joiner = frame.lead(at, (px, py), leaving)
         lines.append(f"\\draw ({name}.{anchor}) {joiner} {_xy(px, py)};")
     return lines
 
