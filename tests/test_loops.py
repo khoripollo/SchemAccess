@@ -252,8 +252,11 @@ def test_loop5_refused_circuit_draws_no_arrows(load) -> None:
 def test_loop5_previews_draw_the_loops(load) -> None:
     graph = load("loops_two_sources.kicad_sch")
     svg = svgpreview.generate(graph, loops=True)
-    arcs = re.findall(r'<path d="M [^"]* A [\d.]+ [\d.]+ 0 1 ([01]) [^"]*" '
-                      r'class="sa-loop"/>', svg)
+    # Elements carry their class plus the presentation attributes that make
+    # the drawing render in a viewer with no CSS, so match on the class
+    # wherever it falls in the tag rather than assuming it comes last.
+    arcs = re.findall(r'<path d="M [^"]* A [\d.]+ [\d.]+ 0 1 ([01]) [^"]*"'
+                      r'[^>]*\bclass="sa-loop"[^>]*/>', svg)
     assert arcs == ["1", "0"]
     assert svg.count('class="sa-loop sa-filled"') == 2
     assert ">i1<" in svg and ">i2<" in svg

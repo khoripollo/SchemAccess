@@ -128,6 +128,62 @@ def _ref_key(ref: str) -> Tuple[str, int, str]:
 # Drawing surface
 # ---------------------------------------------------------------------------
 
+#: Ink used by the presentation-attribute fallback below.  The same colour
+#: the standalone stylesheet picks for a light page.
+_FALLBACK_INK = "#111827"
+_FALLBACK_LOOP = "#1d4ed8"
+
+
+def _presentation(cls: str) -> str:
+    """The stylesheet's rules for *cls*, as presentation attributes.
+
+    Every element carries both its class and these attributes.  In anything
+    that understands CSS the stylesheet wins - an author stylesheet
+    outranks a presentation attribute - so the drawing still follows
+    ``currentColor`` and still flips for a dark page.  The attributes only
+    come into play in a renderer that ignores the ``<style>`` block
+    altogether: Qt's ``QSvgRenderer`` is SVG Tiny 1.2 and does exactly
+    that, which previously left every shape filled black with no stroke.
+    """
+    attrs: Dict[str, str] = {}
+    names = cls.split()
+    stroked = {"sa-wire", "sa-lead", "sa-body"} & set(names)
+    if stroked:
+        attrs.update(stroke=_FALLBACK_INK, fill="none",
+                     **{"stroke-linecap": "round",
+                        "stroke-linejoin": "round"})
+    if {"sa-wire", "sa-lead"} & set(names):
+        attrs["stroke-width"] = _f(_WIRE_W)
+    if "sa-body" in names:
+        attrs["stroke-width"] = _f(_BODY_W)
+    if "sa-thick" in names:
+        attrs["stroke-width"] = _f(_BODY_W * 1.8)
+    if "sa-filled" in names:
+        attrs["fill"] = _FALLBACK_INK
+    if "sa-ghost" in names:
+        attrs["stroke-width"] = _f(_BODY_W)
+        attrs["opacity"] = "0.45"
+    if "sa-dot" in names:
+        attrs.update(fill=_FALLBACK_INK, stroke="none")
+    if "sa-text" in names:
+        attrs.update(fill=_FALLBACK_INK, stroke="none",
+                     **{"font-family": "Segoe UI, Helvetica Neue, Arial,"
+                                       " sans-serif"})
+    if "sa-netname" in names:
+        attrs["opacity"] = "0.75"
+        attrs["font-style"] = "italic"
+    if "sa-loop" in names:
+        attrs.update(stroke=_FALLBACK_LOOP, fill="none",
+                     **{"stroke-width": _f(_BODY_W),
+                        "stroke-linecap": "round"})
+        if {"sa-filled", "sa-text"} & set(names):
+            attrs.update(fill=_FALLBACK_LOOP, stroke="none",
+                         **{"font-style": "italic"})
+    if not attrs:
+        return ""
+    return " " + " ".join(f'{k}="{v}"' for k, v in sorted(attrs.items()))
+
+
 class _Canvas:
     """Collects SVG elements, grouped so CSS can style them by layer."""
 
@@ -140,30 +196,34 @@ class _Canvas:
     def line(self, a: Point, b: Point, cls: str = "sa-wire") -> None:
         target = self.wires if cls == "sa-wire" else self.bodies
         target.append(f'<line x1="{_f(a[0])}" y1="{_f(a[1])}" '
-                      f'x2="{_f(b[0])}" y2="{_f(b[1])}" class="{cls}"/>')
+                      f'x2="{_f(b[0])}" y2="{_f(b[1])}" '
+                      f'class="{cls}"{_presentation(cls)}/>')
 
     def polyline(self, points: Sequence[Point], cls: str = "sa-wire") -> None:
         if len(points) < 2:
             return
         target = self.wires if cls == "sa-wire" else self.bodies
         pts = " ".join(_pt(p) for p in points)
-        target.append(f'<polyline points="{pts}" class="{cls}"/>')
+        target.append(f'<polyline points="{pts}" '
+                      f'class="{cls}"{_presentation(cls)}/>')
 
     def circle(self, centre: Point, radius: float,
                cls: str = "sa-body") -> None:
         target = self.wires if cls == "sa-dot" else self.bodies
         target.append(f'<circle cx="{_f(centre[0])}" cy="{_f(centre[1])}" '
-                      f'r="{_f(radius)}" class="{cls}"/>')
+                      f'r="{_f(radius)}" '
+                      f'class="{cls}"{_presentation(cls)}/>')
 
     def rect(self, x: float, y: float, w: float, h: float,
              cls: str = "sa-body", radius: float = 0.0) -> None:
         extra = f' rx="{_f(radius)}"' if radius else ""
         self.bodies.append(f'<rect x="{_f(x)}" y="{_f(y)}" '
                            f'width="{_f(w)}" height="{_f(h)}"{extra} '
-                           f'class="{cls}"/>')
+                           f'class="{cls}"{_presentation(cls)}/>')
 
     def path(self, d: str, cls: str = "sa-body") -> None:
-        self.bodies.append(f'<path d="{d}" class="{cls}"/>')
+        self.bodies.append(f'<path d="{d}" '
+                           f'class="{cls}"{_presentation(cls)}/>')
 
     def label(self, position: Point, content: str, *, size: float = _TEXT,
               anchor: str = "middle", cls: str = "sa-text",
@@ -173,7 +233,8 @@ class _Canvas:
         self.text.append(
             f'<text x="{_f(position[0])}" y="{_f(position[1])}" '
             f'font-size="{_f(size)}" text-anchor="{anchor}" '
-            f'dominant-baseline="{baseline}" class="{cls}">'
+            f'dominant-baseline="{baseline}" '
+            f'class="{cls}"{_presentation(cls)}>'
             f'{_esc(content)}</text>')
 
     # -- local frames ----------------------------------------------------
