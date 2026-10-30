@@ -1,4 +1,4 @@
-"""Main window for the SchemAccess desktop GUI.
+﻿"""Main window for the SchemAccess desktop GUI.
 
 Accessibility is the product: every interactive widget carries an
 accessible name and description, labels are buddy-paired with their
@@ -13,6 +13,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+from pathlib import Path
 from typing import Optional
 
 from PySide6.QtCore import (QObject, QSettings, QSize, Qt, QThread, Signal,
@@ -31,6 +32,9 @@ from PySide6.QtWidgets import (
     QFrame,
     QGridLayout,
     QGroupBox,
+    QHeaderView,
+    QTableWidget,
+    QTableWidgetItem,
     QHBoxLayout,
     QLabel,
     QLineEdit,
@@ -60,24 +64,136 @@ NETLIST_CHOICES = (("None", ""), ("SPICE (.cir)", "spice"),
                    ("KiCad (.net)", "kicad"), ("Text table (.txt)", "text"),
                    ("CSV (.csv)", "csv"), ("All four", "all"))
 
-#: The Generate button is the main action, so it is large and blue.
-#: White on #0b5cd5 is 6:1 contrast; the amber focus ring stands out
-#: against both the blue and light or dark window backgrounds (a style
-#: sheet replaces the native macOS focus ring, so one is drawn here).
+#: The Generate button is the main action, so it is large and carries the
+#: accent colour.  White on #c2103a is 7.1:1 contrast; the amber focus ring
+#: stands out against both the crimson and the dark window background (the
+#: style sheet replaces the native focus ring, so one is drawn here).
 GENERATE_BUTTON_STYLE = """
 QPushButton {
-    background-color: #0b5cd5;
+    background-color: #c2103a;
     color: #ffffff;
     border: 3px solid transparent;
     border-radius: 8px;
     font-size: 15px;
     font-weight: bold;
-    padding: 6px 20px;
+    padding: 8px 20px;
 }
-QPushButton:hover { background-color: #0a4fb8; }
-QPushButton:pressed { background-color: #083f94; }
+QPushButton:hover { background-color: #a50d31; }
+QPushButton:pressed { background-color: #8a0b29; }
 QPushButton:focus { border-color: #ffbf47; }
-QPushButton:disabled { background-color: #6b7685; color: #dde2e8; }
+QPushButton:disabled { background-color: #4a3038; color: #9b8d92; }
+"""
+
+#: Dark card theme.  Every colour here was checked against the text it
+#: carries: body text #e9e9ec on card #1b1b1f is 13:1, the muted labels
+#: #a6a6ae are 6.4:1, and the accent only ever sits behind white.  The
+#: schematic preview keeps a white backing because the rendered drawing is
+#: black ink on transparency and would vanish on a dark panel.
+#: ``@CHECK@`` is replaced at runtime with the path of check.svg.
+DARK_THEME = """
+QWidget { background-color: #121214; color: #e9e9ec;
+          font-size: 13px; }
+
+QGroupBox {
+    background-color: #1b1b1f;
+    border: 1px solid #2b2b32;
+    border-radius: 10px;
+    margin-top: 0px;
+    /* Room at the top for the title, which sits inside the card rather
+       than straddling the border the way Qt places it by default. */
+    padding: 44px 14px 14px 14px;
+    font-weight: 600;
+}
+QGroupBox::title {
+    /* 'padding' origin puts the title inside the frame; the default
+       'margin' origin hangs it on the border and cuts a gap in it. */
+    subcontrol-origin: padding;
+    subcontrol-position: top left;
+    left: 0px;
+    top: 14px;
+    padding: 0 8px 0 10px;
+    color: #f2f2f4;
+    font-size: 15px;
+    font-weight: 700;
+    border-left: 3px solid #c2103a;
+}
+
+QLabel { background: transparent; color: #a6a6ae; }
+
+QLineEdit, QPlainTextEdit, QComboBox, QAbstractItemView {
+    background-color: #232329;
+    border: 1px solid #35353e;
+    border-radius: 6px;
+    padding: 6px 8px;
+    color: #e9e9ec;
+    selection-background-color: #c2103a;
+    selection-color: #ffffff;
+}
+QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
+    border-color: #c2103a;
+}
+QLineEdit:read-only { color: #c9c9d0; }
+
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox::down-arrow {
+    image: url("@CHEVRON@");
+    width: 12px; height: 12px;
+    margin-right: 8px;
+}
+QComboBox QAbstractItemView {
+    border: 1px solid #35353e;
+    selection-background-color: #c2103a;
+}
+
+QPushButton {
+    background-color: #2a2a31;
+    border: 1px solid #3b3b45;
+    border-radius: 6px;
+    padding: 6px 14px;
+    color: #e9e9ec;
+}
+QPushButton:hover { background-color: #33333c; }
+QPushButton:pressed { background-color: #26262d; }
+QPushButton:focus { border-color: #ffbf47; }
+QPushButton:disabled { color: #70707a; border-color: #2b2b32; }
+
+QCheckBox { background: transparent; color: #e9e9ec; spacing: 8px; }
+QCheckBox::indicator {
+    width: 16px; height: 16px;
+    border: 1px solid #4a4a55;
+    border-radius: 4px;
+    background-color: #232329;
+}
+QCheckBox::indicator:checked {
+    background-color: #c2103a;
+    border-color: #c2103a;
+    image: url("@CHECK@");
+}
+QCheckBox::indicator:focus { border-color: #ffbf47; }
+
+QTableWidget {
+    background-color: #1b1b1f;
+    alternate-background-color: #202026;
+    gridline-color: #2b2b32;
+    border: 1px solid #2b2b32;
+    border-radius: 6px;
+    color: #e9e9ec;
+}
+QTableWidget::item { padding: 5px 8px; border: none; }
+QHeaderView::section { background-color: #1b1b1f; border: none; }
+
+QScrollBar:vertical { background: #1b1b1f; width: 10px; margin: 0; }
+QScrollBar::handle:vertical {
+    background: #3b3b45; border-radius: 5px; min-height: 24px;
+}
+QScrollBar::handle:vertical:hover { background: #4a4a55; }
+QScrollBar::add-line, QScrollBar::sub-line { height: 0; }
+QScrollArea { border: none; }
+QStatusBar { color: #a6a6ae; }
+QToolTip {
+    background-color: #232329; color: #e9e9ec;
+    border: 1px solid #35353e; padding: 4px;
+}
 """
 
 _SETTINGS_ORG = "SchemAccess"
@@ -176,6 +292,12 @@ class PreviewLabel(QLabel):
         self.setAlignment(Qt.AlignmentFlag.AlignCenter)
         self.setSizePolicy(QSizePolicy.Policy.Ignored,
                            QSizePolicy.Policy.Expanding)
+        # The drawing is black ink on transparency, so it needs a light
+        # backing even inside a dark window - on the dark panel it would be
+        # invisible.  White also matches the printed page it represents.
+        self.setStyleSheet(
+            "background-color: #ffffff; border: 1px solid #2b2b32;"
+            " border-radius: 8px; padding: 6px;")
 
     def sizeHint(self) -> QSize:  # noqa: N802
         return QSize(560, 300)
@@ -217,6 +339,7 @@ class MainWindow(QMainWindow):
         self.setWindowTitle("SchemAccess - Accessible KiCad Schematics")
         self.setMinimumSize(780, 640)
         self.setAcceptDrops(True)
+        self._apply_theme()
 
         self._settings = QSettings(_SETTINGS_ORG, _SETTINGS_APP)
         self._last_input_dir = ""
@@ -233,6 +356,49 @@ class MainWindow(QMainWindow):
             "Ready. Choose a KiCad schematic file to begin.")
 
     # ------------------------------------------------------------------ UI
+
+    def _fill_summary(self, stats) -> None:
+        """Put the headline counts in the summary table.
+
+        Only the figures that are always meaningful go here.  The fuller
+        prose - which grounds and supplies were found, why loop currents
+        were skipped - still goes to the progress log, so nothing is lost
+        by showing the counts as a table.
+        """
+        rows = [("Components", str(stats.components)),
+                ("Nodes", str(stats.nodes)),
+                ("Nets", str(stats.nets))]
+        if stats.has_drawing:
+            rows.append(("Converted to symbols",
+                         f"{stats.drawn} of {stats.components}"))
+        if stats.has_text:
+            rows.append(("Described in alt text",
+                         f"{stats.described} of {stats.components}"))
+
+        self.summary_table.setRowCount(len(rows))
+        for row, (name, value) in enumerate(rows):
+            label = QTableWidgetItem(name)
+            number = QTableWidgetItem(value)
+            number.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            for item in (label, number):
+                item.setFlags(Qt.ItemIsEnabled)
+            self.summary_table.setItem(row, 0, label)
+            self.summary_table.setItem(row, 1, number)
+        self.summary_table.resizeRowsToContents()
+
+    def _apply_theme(self) -> None:
+        """Paint the window with the dark card theme.
+
+        The checkbox tick and the combo-box chevron ship beside this module,
+        so their paths are resolved here and substituted into the style
+        sheet; Qt needs a real path and cannot read one out of a string
+        literal.
+        """
+        here = Path(__file__).parent
+        qss = (DARK_THEME
+               .replace("@CHECK@", (here / "check.svg").as_posix())
+               .replace("@CHEVRON@", (here / "chevron.svg").as_posix()))
+        self.setStyleSheet(qss)
 
     def _build_ui(self) -> None:
         """Create all widgets, wiring, accessibility metadata and tab order."""
@@ -277,7 +443,7 @@ class MainWindow(QMainWindow):
         options_group = QGroupBox("Output Options", self._controls)
         options_layout = QGridLayout(options_group)
 
-        self.alt_text_check = QCheckBox("Generate &Alt Text", options_group)
+        self.alt_text_check = QCheckBox("Generate &alternative text", options_group)
         self.alt_text_check.setChecked(True)
         self.alt_text_check.setAccessibleName("Generate alt text")
         self.alt_text_check.setAccessibleDescription(
@@ -285,7 +451,8 @@ class MainWindow(QMainWindow):
             "is written to a text file and shown in the results area.")
         self.alt_text_check.toggled.connect(self._on_option_toggled)
 
-        self.image_check = QCheckBox("Generate I&mage", options_group)
+        self.image_check = QCheckBox("Generate i&mage (CircuiTikZ)",
+                                     options_group)
         self.image_check.setChecked(True)
         self.image_check.setAccessibleName("Generate image")
         self.image_check.setAccessibleDescription(
@@ -414,7 +581,7 @@ class MainWindow(QMainWindow):
         controls_layout.addWidget(folder_group)
 
         # -- GENERATE --------------------------------------------------------
-        self.generate_button = QPushButton("&Generate", central)
+        self.generate_button = QPushButton("\u25b6  &Generate", central)
         self.generate_button.setStyleSheet(GENERATE_BUTTON_STYLE)
         self.generate_button.setMinimumHeight(42)
         self.generate_button.setDefault(True)
@@ -450,19 +617,26 @@ class MainWindow(QMainWindow):
         results_layout = QVBoxLayout(results_group)
 
         self.summary_label = QLabel("Con&version summary:", results_group)
-        self.summary_edit = QPlainTextEdit(results_group)
-        self.summary_edit.setReadOnly(True)
-        self.summary_edit.setMaximumHeight(110)
-        self.summary_edit.setPlaceholderText(
-            "Component and node counts appear here after generating.")
-        self.summary_edit.setAccessibleName("Conversion summary")
-        self.summary_edit.setAccessibleDescription(
+        self.summary_table = QTableWidget(0, 2, results_group)
+        self.summary_table.setAccessibleName("Conversion summary")
+        self.summary_table.setAccessibleDescription(
             "How many components and nodes were found in the KiCad "
             "schematic, and how many were converted to CircuiTikZ symbols "
             "and described in the alt text.")
-        self.summary_label.setBuddy(self.summary_edit)
+        self.summary_table.horizontalHeader().setVisible(False)
+        self.summary_table.verticalHeader().setVisible(False)
+        self.summary_table.setShowGrid(False)
+        self.summary_table.setAlternatingRowColors(True)
+        self.summary_table.setSelectionMode(QTableWidget.NoSelection)
+        self.summary_table.setFocusPolicy(Qt.TabFocus)
+        self.summary_table.setMaximumHeight(190)
+        self.summary_table.horizontalHeader().setSectionResizeMode(
+            0, QHeaderView.Stretch)
+        self.summary_table.horizontalHeader().setSectionResizeMode(
+            1, QHeaderView.ResizeToContents)
+        self.summary_label.setBuddy(self.summary_table)
 
-        self.results_label = QLabel("Al&t text result:", results_group)
+        self.results_label = QLabel("Al&ternative text:", results_group)
         self.results_edit = QPlainTextEdit(results_group)
         self.results_edit.setReadOnly(True)
         self.results_edit.setAccessibleName("Generated alt text")
@@ -483,11 +657,16 @@ class MainWindow(QMainWindow):
             "Open the output folder in the system file manager.")
         self.open_folder_button.clicked.connect(self._open_output_folder)
 
-        results_layout.addWidget(self.summary_label)
-        results_layout.addWidget(self.summary_edit)
+        # Picture first: it is what the eye goes to, and it is the thing a
+        # sighted user checks before reading anything.  The description and
+        # the counts sit under it, in that order.
+        self.preview_title = QLabel("Schematic preview:", results_group)
+        results_layout.addWidget(self.preview_title)
+        results_layout.addWidget(self.preview_label, 3)
         results_layout.addWidget(self.results_label)
-        results_layout.addWidget(self.results_edit, 1)
-        results_layout.addWidget(self.preview_label, 2)
+        results_layout.addWidget(self.results_edit, 2)
+        results_layout.addWidget(self.summary_label)
+        results_layout.addWidget(self.summary_table)
         results_layout.addWidget(self.open_folder_button)
         outer.addWidget(results_group, 1)
 
@@ -513,9 +692,9 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
         QWidget.setTabOrder(self.generate_button, self.progress_log)
-        QWidget.setTabOrder(self.progress_log, self.summary_edit)
-        QWidget.setTabOrder(self.summary_edit, self.results_edit)
-        QWidget.setTabOrder(self.results_edit, self.open_folder_button)
+        QWidget.setTabOrder(self.progress_log, self.results_edit)
+        QWidget.setTabOrder(self.results_edit, self.summary_table)
+        QWidget.setTabOrder(self.summary_table, self.open_folder_button)
 
     def _fit_to_screen(self) -> None:
         """Open tall enough for the preview, but no taller than the
@@ -659,7 +838,7 @@ class MainWindow(QMainWindow):
             self.output_edit.setText(os.path.normpath(options.output_dir))
 
         self.progress_log.clear()
-        self.summary_edit.clear()
+        self.summary_table.setRowCount(0)
         self.results_edit.clear()
         self.preview_label.clear()
         self.preview_label.setVisible(False)
@@ -686,7 +865,7 @@ class MainWindow(QMainWindow):
             self.generate_button.setText("Generating...")
             self.statusBar().showMessage("Generating...")
         else:
-            self.generate_button.setText("&Generate")
+            self.generate_button.setText("\u25b6  &Generate")
             self._update_generate_enabled()
 
     @Slot(str)
@@ -705,7 +884,7 @@ class MainWindow(QMainWindow):
             self._report_failure("Pipeline returned an unexpected result.")
             return
 
-        self.summary_edit.setPlainText("\n".join(result.stats.summary_lines()))
+        self._fill_summary(result.stats)
 
         for warning in result.warnings:
             self._append_progress(f"Warning: {warning}")
@@ -858,5 +1037,6 @@ class MainWindow(QMainWindow):
             self._thread.quit()
             self._thread.wait(5000)
         super().closeEvent(event)
+
 
 

@@ -81,12 +81,24 @@ def test_gui_shows_a_conversion_summary(window):
     """The results area reports counts in and counts converted."""
     from schemaccess.pipeline import ConversionStats
 
-    assert window.summary_edit.isReadOnly()
-    assert window.summary_edit.accessibleName() == "Conversion summary"
+    assert window.summary_table.accessibleName() == "Conversion summary"
 
     stats = ConversionStats(symbols=28, components=25, nets=46, nodes=11,
                             drawn=24, described=25, fallbacks=["TR1"],
                             has_drawing=True, has_text=True)
+
+    # The counts are shown as a table; read them back out of the cells.
+    window._fill_summary(stats)
+    shown = {window.summary_table.item(r, 0).text():
+             window.summary_table.item(r, 1).text()
+             for r in range(window.summary_table.rowCount())}
+    assert shown["Components"] == "25"
+    assert shown["Nodes"] == "11"
+    assert shown["Nets"] == "46"
+    assert shown["Converted to symbols"] == "24 of 25"
+    assert shown["Described in alt text"] == "25 of 25"
+
+    # The fuller prose still reaches the progress log unchanged.
     text = "\n".join(stats.summary_lines())
     assert "25 components in the KiCad schematic (28 symbols placed)." in text
     assert "11 nodes (46 nets in total)." in text
