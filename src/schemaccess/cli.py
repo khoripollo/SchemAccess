@@ -1,4 +1,4 @@
-"""Command-line interface for SchemAccess.
+﻿"""Command-line interface for SchemAccess.
 
 Installed as the ``schemaccess`` console script (see ``pyproject.toml``)::
 
@@ -42,7 +42,6 @@ examples:
   schemaccess board.kicad_sch --no-image --print-alt --quiet
   schemaccess board.kicad_sch --no-junction-dots --format pdf
   schemaccess board.kicad_sch --loops --detail detailed
-  schemaccess board.kicad_sch --units --format pdf
   schemaccess board.kicad_sch --netlist all --svg-preview --pdf-preview
   schemaccess board.kicad_sch --netlist spice,csv --no-image
 """
@@ -129,12 +128,6 @@ def build_parser() -> argparse.ArgumentParser:
              "flows, and describe the loops in the alt text.  Works on flat "
              "circuits of two-terminal parts with up to 4 loops; any other "
              "circuit is converted without them and a warning says why",
-    )
-    parser.add_argument(
-        "--units",
-        action="store_true",
-        help="write units after the values on the drawing (1 -> 1 H, "
-             "22n -> 22 nF, 100k -> 100 kΩ)",
     )
     parser.add_argument(
         "--netlist",
@@ -228,7 +221,6 @@ def main(argv: list[str] | None = None) -> int:
         junction_dots=not args.no_junction_dots,
         switch_style=args.switch_style,
         show_loops=args.loops,
-        show_units=args.units,
         netlist_formats=netlist_formats,
         svg_preview=args.svg_preview,
         pdf_preview=args.pdf_preview,

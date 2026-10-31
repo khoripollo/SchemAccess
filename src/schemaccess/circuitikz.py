@@ -24,10 +24,10 @@ import os
 import re
 from typing import Dict, List, Optional, Set, Tuple
 
-from . import power
+from . import power, units
 from .loops import find_meshes
-from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
-                    PinConnection, Point, SchematicDocument)
+from .model import (CircuitGraph, Component, ComponentType, FieldText, Net,
+                    NetKind, PinConnection, Point, SchematicDocument)
 
 __all__ = ["generate", "generate_body", "SCALE"]
 
@@ -433,13 +433,14 @@ def _format_value(comp: Component) -> str:
     raw = comp.value.strip()
     if _is_placeholder_value(raw, comp.lib_id, comp.ctype):
         return ""
-    if comp.ctype in (ComponentType.RESISTOR, ComponentType.POTENTIOMETER,
-                      ComponentType.VARIABLE_RESISTOR) \
-            and _BARE_NUMBER_RE.match(raw):
-        return raw + r"~$\Omega$"
-    micro = _MICRO_VALUE_RE.match(raw)
-    if micro:
-        return micro.group(1) + r"\,$\mu$" + _escape(micro.group(2))
+    # A value that is a quantity is typeset as one.  circuitikz is loaded
+    # with its siunitx option, so "4k7" on a resistor becomes
+    # \SI{4.7}{\kilo\ohm} - the unit letters come out upright and the
+    # space before them is the right width, neither of which happens when
+    # the characters are set by hand.
+    si = units.siunitx(raw, comp.ctype)
+    if si is not None:
+        return si
     return _escape(raw)
 
 
@@ -631,14 +632,97 @@ def _emit_junctions(doc: SchematicDocument, tr: _Transform) -> List[str]:
             for j in doc.junctions]
 
 
-def _bipole_options(comp: Component, key: str) -> str:
-    opts = [key]
-    if comp.shows("Reference"):
-        opts.append(f"l={{{_escape(comp.ref)}}}")
-    value = _format_value(comp)
-    if value:
-        opts.append(f"a={{{value}}}")
-    return ", ".join(opts)
+#: TikZ anchors for KiCad's justification tokens.  Both name the edge
+#: of the text that its position refers to, both name it in the text's
+#: own frame, and the Y flip leaves 'top' visually on top, so the names
+#: map straight across.
+_ANCHOR_H = {"left": "west", "right": "east"}
+_ANCHOR_V = {"top": "north", "bottom": "south"}
+
+_FLIP = {"left": "right", "right": "left",
+         "top": "bottom", "bottom": "top", "": ""}
+
+
+def _text_frame(comp: Component, where: FieldText) -> Tuple[int, str, str]:
+    """How a property's text actually sits on the sheet.
+
+    A field's angle and justification are stored in its symbol's own
+    frame, with the symbol's rotation and mirroring left to be applied
+    on top, so neither can be taken straight from the file.  KiCad also
+    never sets text upside down: half a turn comes out as no turn with
+    both justifications swapped.  That is why a resistor rotated 180
+    degrees stores its value as right-justified and still draws it to
+    the right of the part, and why one rotated 90 degrees stores its
+    reference at 90 degrees and still draws it level.
+
+    Returns the angle on the page and the horizontal and vertical
+    justification, each '' where KiCad centres the text.
+    """
+    horizontal = next((t for t in where.justify if t in _ANCHOR_H), "")
+    vertical = next((t for t in where.justify if t in _ANCHOR_V), "")
+    angle = int(round(comp.angle + where.angle)) % 360
+    if comp.mirror in ("x", "y"):
+        # A flip along the reading direction swaps the two ends of the
+        # text; one across it swaps its top for its bottom.
+        if (comp.mirror == "y") == (angle % 180 == 0):
+            horizontal = _FLIP[horizontal]
+        else:
+            vertical = _FLIP[vertical]
+    if angle >= 180:
+        angle -= 180
+        horizontal, vertical = _FLIP[horizontal], _FLIP[vertical]
+    return angle, horizontal, vertical
+
+
+def _field_node(comp: Component, where: FieldText, tr: "_Transform",
+                text: str) -> str:
+    """One property's text, set where the schematic puts it.
+
+    *text* goes in as it stands, the way circuitikz's own ``l``/``a``
+    slots take it: both are text mode, and :func:`_escape` has already
+    put maths round the few characters that need it, so a node here and
+    a label there come out looking the same.
+    """
+    angle, horizontal, vertical = _text_frame(comp, where)
+    anchor = " ".join(p for p in (_ANCHOR_V.get(vertical, ""),
+                                  _ANCHOR_H.get(horizontal, "")) if p)
+    options = [f"anchor={anchor or 'center'}"]
+    if angle:
+        options.append(f"rotate={angle}")
+    x, y = tr.point(where.position)
+    return f"\\node[{', '.join(options)}] at {_xy(x, y)} {{{text}}};"
+
+
+def _bipole_labels(comp: Component,
+                   tr: "_Transform") -> Tuple[str, List[str]]:
+    """The label part of a bipole's options, and nodes to set beside it.
+
+    KiCad records where the author dragged each piece of text, and the
+    drawing puts it back there.  Reading the position rather than a side
+    is what lets the reference and the value sit together above a part,
+    or side by side to its left, the way the schematic has them:
+    circuitikz's own ``l`` and ``a`` slots hold one label each and
+    always land on opposite sides of the symbol, so between them they
+    can only ever express half of what KiCad allows.
+
+    The slots are still the fallback for a field with no recorded
+    position - a component built in code rather than read off a sheet.
+    """
+    options: List[str] = []
+    nodes: List[str] = []
+    for field, slot in (("Reference", "l"), ("Value", "a")):
+        if field == "Reference":
+            text = _escape(comp.ref) if comp.shows("Reference") else ""
+        else:
+            text = _format_value(comp)
+        if not text:
+            continue
+        where = comp.field_text.get(field)
+        if where is None:
+            options.append(f"{slot}={{{text}}}")
+        else:
+            nodes.append(_field_node(comp, where, tr, text))
+    return "".join(f", {opt}" for opt in options), nodes
 
 
 #: Diamond-bodied equivalents, used when the KiCad symbol is drawn as a
@@ -695,8 +779,10 @@ def _emit_two_terminal(comp: Component, tr: _Transform,
     if comp.ctype == ComponentType.POTENTIOMETER and len(comp.pins) == 3:
         return _emit_potentiometer(comp, tr)
     first, second = _bipole_pin_order(comp)
+    labels, nodes = _bipole_labels(comp, tr)
     return [f"\\draw {tr.coord(first.position)} "
-            f"to[{_bipole_options(comp, key)}] {tr.coord(second.position)};"]
+            f"to[{key}{labels}] "
+            f"{tr.coord(second.position)};"] + nodes
 
 
 def _emit_potentiometer(comp: Component, tr: _Transform) -> List[str]:
@@ -706,11 +792,11 @@ def _emit_potentiometer(comp: Component, tr: _Transform) -> List[str]:
     wiper = comp.pins[numbers[1]]
     end_b = comp.pins[numbers[2]]
     name = _node_name(comp.ref)
-    lines = [f"\\draw {tr.coord(end_a.position)} "
-             f"to[{_bipole_options(comp, 'pR')}, name={name}] "
-             f"{tr.coord(end_b.position)};",
-             f"\\draw ({name}.wiper) -- {tr.coord(wiper.position)};"]
-    return lines
+    labels, nodes = _bipole_labels(comp, tr)
+    return [f"\\draw {tr.coord(end_a.position)} "
+            f"to[pR{labels}, name={name}] "
+            f"{tr.coord(end_b.position)};"] + nodes + [
+            f"\\draw ({name}.wiper) -- {tr.coord(wiper.position)};"]
 
 
 def _classify_gate_pins(comp: Component) -> Tuple[List[PinConnection],
@@ -990,8 +1076,10 @@ def _emit_controlled_source(comp: Component, tr: _Transform,
                      if comp.ctype == ComponentType.CONTROLLED_CURRENT_SOURCE
                      else (minus, plus))
     key = _bipole_key(comp)
+    labels, label_nodes = _bipole_labels(comp, tr)
     lines = [f"\\draw {tr.coord(first.position)} "
-             f"to[{_bipole_options(comp, key)}] {tr.coord(second.position)};"]
+             f"to[{key}{labels}] "
+             f"{tr.coord(second.position)};"] + label_nodes
     # The sense pins get a lead only when something is actually wired to
     # them.  On an unwired sheet their stubs are just two stray marks
     # floating beside the diamond.
@@ -1763,7 +1851,17 @@ def generate(graph: CircuitGraph, *, junction_dots: bool = True,
         f"% Generated by SchemAccess from {base}",
         f"% {n_comp} components, {n_nets} nets",
         r"\documentclass[border=4pt]{standalone}",
-        r"\usepackage[RPvoltages]{circuitikz}",
+        # The preamble the course uses.  'siunitx' lets a value be written
+        # as a real quantity (\SI{4.7}{\kilo\ohm}), which typesets the
+        # spacing and the upright unit letters properly; 'american' picks
+        # the resistor zigzag over the IEC box.
+        #
+        # 'RPvoltages' is not part of the course preamble but has to stay:
+        # without it circuitikz puts the minus sign at a source's first
+        # terminal instead of the plus, which silently contradicts the
+        # alt text where it names the positive terminal.
+        r"\usepackage[siunitx, american, RPvoltages]{circuitikz}",
+        r"\usepackage{amssymb}",
         r"\begin{document}",
         generate_body(graph, junction_dots=junction_dots,
                       fallbacks=fallbacks, loops=loops,

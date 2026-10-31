@@ -271,6 +271,7 @@ def build_graph(doc: SchematicDocument) -> CircuitGraph:
                 angle=inst.angle,
                 mirror=inst.mirror,
                 properties=dict(inst.properties),
+                field_text=dict(inst.field_text),
                 hidden_properties=set(inst.hidden_properties),
                 body_shape=lib.body_shape,
             )

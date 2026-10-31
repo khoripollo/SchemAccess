@@ -102,6 +102,27 @@ class LibSymbol:
         return [d for d in self.dots if d.unit in (0, unit)]
 
 
+@dataclass(frozen=True)
+class FieldText:
+    """Where KiCad draws one of a symbol's property texts.
+
+    Schematic coordinates, Y **down**.  *justify* carries KiCad's own
+    tokens: 'left' or 'right' names the vertical edge of the text the
+    point sits on and 'top' or 'bottom' the horizontal one, each absent
+    meaning centred.  Without them the point alone does not say where
+    the text goes - "V1" anchored by its left edge and the same text
+    anchored by its middle start half a word apart.
+    """
+    x: float
+    y: float
+    angle: float = 0.0
+    justify: Tuple[str, ...] = ()
+
+    @property
+    def position(self) -> Point:
+        return (self.x, self.y)
+
+
 @dataclass
 class SymbolInstance:
     """A placed symbol in the schematic (schematic coords, Y **down**)."""
@@ -116,6 +137,10 @@ class SymbolInstance:
     value: str = ""
     footprint: str = ""
     properties: Dict[str, str] = field(default_factory=dict)
+    #: Where each property's text sits on the sheet (schematic coords,
+    #: Y down).  KiCad lets the author drag a reference or a value
+    #: wherever it reads best, and the drawing follows that.
+    field_text: Dict[str, FieldText] = field(default_factory=dict)
     #: Names of properties whose "Show" checkbox is off in KiCad; these
     #: are not drawn on the schematic and must not be drawn by us either.
     hidden_properties: Set[str] = field(default_factory=set)
@@ -372,6 +397,10 @@ class Component:
     #: these; the alt text does not, because a screen-reader description
     #: still needs to name the component it is describing.
     hidden_properties: Set[str] = field(default_factory=set)
+    #: Where each property's text sits on the sheet, so the drawing can
+    #: put it back where the author put it (see
+    #: :attr:`SymbolInstance.field_text`).
+    field_text: Dict[str, FieldText] = field(default_factory=dict)
     #: Polarity / winding-phase dots carried by the symbol, as absolute
     #: schematic positions with their radius in millimetres.
     dots: List[Tuple[Point, float]] = field(default_factory=list)

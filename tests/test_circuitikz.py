@@ -1,4 +1,4 @@
-"""CircuiTikZ generator tests.
+﻿"""CircuiTikZ generator tests.
 
 * FUN-2  - structural syntax validity for every fixture, plus real
   pdflatex compilation of every generated document (slow).
@@ -13,7 +13,7 @@ from __future__ import annotations
 
 import re
 from pathlib import Path
-from typing import Dict, List, Tuple
+from typing import Dict, Iterable, List, Tuple
 
 import pytest
 
@@ -35,6 +35,12 @@ _BIPOLE_RE = re.compile(
     r"^\\draw \((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\) "
     r"to\[([^\]]*)\] \((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\);$")
 _LABEL_OPT_RE = re.compile(r"l=\{([^}]*)\}")
+# A reference or a value set where KiCad's author dragged it, rather
+# than in one of circuitikz's own label slots.  These follow the
+# \draw line of the part they belong to.
+_FIELD_NODE_RE = re.compile(
+    r"^\\node\[[^\]]*\] at \((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\) "
+    r"\{(.*)\};$")
 _POWER_NODE_RE = re.compile(
     r"^\\draw \((-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)\) "
     r"node\[(ground|vcc|vee)\]\{([^}]*)\};$")
@@ -44,30 +50,68 @@ def _pt(x: object, y: object) -> Point:
     return (round(float(x), 3), round(float(y), 3))
 
 
-def _parse_tex(tex: str) -> Tuple[List[List[Point]],
-                                  List[Tuple[str, str, Point, Point]],
-                                  List[Tuple[str, str, Point]]]:
+def bipole_blocks(tex: str) -> List[Tuple[str, List[str]]]:
+    """Each ``to[...]`` line paired with the label nodes that follow it.
+
+    Drawing one part takes several lines: its reference and its value
+    are set as their own nodes wherever KiCad recorded where the author
+    put the text, so a test that reads only the ``to[...]`` line sees
+    none of its labels.
+    """
+    blocks: List[Tuple[str, List[str]]] = []
+    collecting = False
+    for raw in tex.splitlines():
+        line = raw.strip()
+        if _BIPOLE_RE.match(line):
+            blocks.append((line, []))
+            collecting = True
+        elif collecting and _FIELD_NODE_RE.match(line):
+            blocks[-1][1].append(line)
+        else:
+            collecting = False
+    return blocks
+
+
+def labels_of(block: Tuple[str, List[str]]) -> List[str]:
+    """Every piece of text one part's drawing sets beside it."""
+    line, nodes = block
+    texts = [m.group(1) for m in _LABEL_OPT_RE.finditer(line)]
+    texts += [m.group(3) for m in
+              (_FIELD_NODE_RE.match(n) for n in nodes) if m]
+    return texts
+
+
+def drawing_of(tex: str, ref: str) -> str:
+    """The lines that draw *ref*, as one string to assert against."""
+    for block in bipole_blocks(tex):
+        if ref in labels_of(block):
+            return "\n".join([block[0]] + block[1])
+    raise AssertionError(f"no part labelled {ref!r} in:\n{tex}")
+
+
+def _parse_tex(tex: str, refs: Iterable[str] = ()) -> Tuple[
+        List[List[Point]],
+        List[Tuple[str, str, Point, Point]],
+        List[Tuple[str, str, Point]]]:
     """Extract wire polylines, bipoles and power markers from a document.
 
     Returns ``(wires, bipoles, markers)``: *wires* is a list of
     coordinate polylines, *bipoles* a list of
     ``(ref, options, start, end)`` and *markers* a list of
     ``(style, rail_text, point)`` for ground/vcc/vee flags.
+
+    A reference is usually set as its own node beside the part rather
+    than inside its ``to[...]``, so *refs* says which designators to
+    recognise; without it every such bipole comes back with ``''``.
     """
+    known = set(refs)
     wires: List[List[Point]] = []
-    bipoles: List[Tuple[str, str, Point, Point]] = []
     markers: List[Tuple[str, str, Point]] = []
     for raw in tex.splitlines():
         line = raw.strip()
         if not line.startswith("\\draw"):
             continue
-        match = _BIPOLE_RE.match(line)
-        if match:
-            options = match.group(3)
-            label = _LABEL_OPT_RE.search(options)
-            bipoles.append((label.group(1) if label else "", options,
-                            _pt(match.group(1), match.group(2)),
-                            _pt(match.group(4), match.group(5))))
+        if _BIPOLE_RE.match(line):
             continue
         power = _POWER_NODE_RE.match(line)
         if power:
@@ -80,6 +124,15 @@ def _parse_tex(tex: str) -> Tuple[List[List[Point]],
         # A pure wire polyline contains only numeric coordinates.
         if len(coords) >= 2 and line.count("(") == len(coords):
             wires.append([_pt(x, y) for x, y in coords])
+
+    bipoles: List[Tuple[str, str, Point, Point]] = []
+    for block in bipole_blocks(tex):
+        match = _BIPOLE_RE.match(block[0])
+        assert match is not None
+        ref = next((t for t in labels_of(block) if t in known), "")
+        bipoles.append((ref, match.group(3),
+                        _pt(match.group(1), match.group(2)),
+                        _pt(match.group(4), match.group(5))))
     return wires, bipoles, markers
 
 
@@ -205,7 +258,7 @@ def test_fun3_rel2_connectivity_preserved(name: str, load) -> None:
     """Pins sharing a net in the graph are connected in the .tex drawing."""
     graph = load(name)
     tex = circuitikz.generate(graph)
-    wires, bipoles, markers = _parse_tex(tex)
+    wires, bipoles, markers = _parse_tex(tex, graph.components)
 
     two_terminal = sorted(
         ref for ref, comp in graph.components.items()
@@ -386,7 +439,8 @@ def test_fun4_source_polarity_from_sim_pins():
     circuitikz V bipole puts '+' at the SECOND coordinate - so the draw
     direction must run bottom-to-top (second y > first y)."""
     tex = _sim_spice_tex()
-    v_lines = [ln for ln in tex.splitlines() if "to[V," in ln]
+    v_lines = [ln for ln, _nodes in bipole_blocks(tex)
+               if re.search(r"to\[V[,\]]", ln)]
     assert len(v_lines) == 1
     match = _BIPOLE_RE.match(v_lines[0])
     assert match is not None
@@ -608,14 +662,15 @@ def test_fun5_hidden_reference_and_value_not_drawn():
     from conftest import load_graph
 
     tex = circuitikz.generate(load_graph("hidden_fields.kicad_sch"))
-    bipoles = [ln for ln in tex.splitlines() if "to[" in ln]
-    assert len(bipoles) == 2, bipoles
-    r1 = next(ln for ln in bipoles if "10k" in ln)
-    r2 = next(ln for ln in bipoles if "R2" in ln)
-    # R1: Reference hidden -> value only, no l= label.
-    assert "l={R1}" not in r1 and "a={10k}" in r1, r1
-    # R2: Value hidden -> reference only, no a= annotation.
-    assert "l={R2}" in r2 and "22k" not in r2, r2
+    blocks = bipole_blocks(tex)
+    assert len(blocks) == 2, blocks
+    r1 = next(b for b in blocks if any(r"\kilo\ohm" in t
+                                       for t in labels_of(b)))
+    r2 = drawing_of(tex, "R2")
+    # R1: Reference hidden -> its value is drawn and its name is not.
+    assert labels_of(r1) == [r"\SI{10}{\kilo\ohm}"], r1
+    # R2: Value hidden -> its name is drawn and 22k is nowhere.
+    assert "22k" not in r2 and r"\SI" not in r2, r2
 
 
 def test_fun5_hidden_fields_parsed_in_both_kicad_syntaxes():
@@ -945,10 +1000,9 @@ def test_com2_polar_value_survives_escaping():
     v1 = graph.components["V1"]
     assert "\u2220" in v1.value, "fixture no longer carries a polar value"
 
-    tex = circuitikz.generate(graph)
-    line = next(ln for ln in tex.splitlines() if "l={V1}" in ln)
-    assert "$\\angle$" in line, f"angle sign lost: {line}"
-    assert "1090" not in line, f"angle sign dropped silently: {line}"
+    drawing = drawing_of(circuitikz.generate(graph), "V1")
+    assert "$\\angle$" in drawing, f"angle sign lost: {drawing}"
+    assert "1090" not in drawing, f"angle sign dropped silently: {drawing}"
 
 
 def test_com2_unmapped_characters_are_reported_not_silently_dropped():
@@ -1013,8 +1067,10 @@ def test_fun5_controlled_sources_use_the_matching_diamond():
     tex = circuitikz.generate(_mixed())
     assert "cvsource" in tex          # B1, a 5V behavioural source
     # B2 is an independent current source by name, but its KiCad symbol is
-    # drawn as a diamond - the drawing follows the artwork.
-    assert "to[cisource, a={5A}]" in tex
+    # drawn as a diamond - the drawing follows the artwork.  Its reference
+    # is hidden in the fixture, so it is found by its drawn value.
+    b2 = next(b for b in bipole_blocks(tex) if "to[cisource]" in b[0])
+    assert r"\SI{5}{\ampere}" in labels_of(b2), b2
 
 
 def test_fun5_drawn_outline_wins_over_the_component_name():
@@ -1027,5 +1083,7 @@ def test_fun5_drawn_outline_wins_over_the_component_name():
     assert graph.components["V2"].body_shape is None
 
     tex = circuitikz.generate(graph)
-    assert "to[I, l={I1}" in tex, "IDC should keep circuitikz's circle"
-    assert "to[V, l={V2}" in tex, "VDC should keep circuitikz's circle"
+    assert "to[I]" in drawing_of(tex, "I1"), \
+        "IDC should keep circuitikz's circle"
+    assert "to[V]" in drawing_of(tex, "V2"), \
+        "VDC should keep circuitikz's circle"

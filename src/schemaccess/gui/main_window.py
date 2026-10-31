@@ -219,7 +219,6 @@ def make_pipeline_options(
     detail_label: str = "Detailed",
     junction_dots: bool = True,
     show_loops: bool = False,
-    show_units: bool = False,
     switch_style: str = "default",
     netlist: str = "",
 ) -> PipelineOptions:
@@ -240,7 +239,6 @@ def make_pipeline_options(
         detail_level=DETAIL_VALUES.get(detail_label, GUI_DETAIL_LEVEL),
         junction_dots=junction_dots,
         show_loops=show_loops,
-        show_units=show_units,
         switch_style=switch_style,
         netlist_formats=(netlist,) if netlist else (),
     )
@@ -491,14 +489,6 @@ class MainWindow(QMainWindow):
             "the summary says why no loops were drawn.")
         self.loops_check.toggled.connect(self._on_option_toggled)
 
-        self.units_check = QCheckBox("Show &units on values (1 H, 22 nF)",
-                                     options_group)
-        self.units_check.setAccessibleName("Show units on values")
-        self.units_check.setAccessibleDescription(
-            "Writes the unit after each value on the drawing, for example "
-            "1 H for an inductor or 22 nF for a capacitor.")
-        self.units_check.toggled.connect(self._on_option_toggled)
-
         self.switch_label = QLabel("S&witch style:", options_group)
         self.switch_combo = QComboBox(options_group)
         for label, key in (("As drawn (plain contact)", "default"),
@@ -544,13 +534,12 @@ class MainWindow(QMainWindow):
         options_layout.addWidget(self.format_combo, 1, 1)
         options_layout.addWidget(self.junction_check, 2, 0, 1, 2)
         options_layout.addWidget(self.loops_check, 3, 0, 1, 2)
-        options_layout.addWidget(self.units_check, 4, 0, 1, 2)
-        options_layout.addWidget(self.switch_label, 5, 0)
-        options_layout.addWidget(self.switch_combo, 5, 1)
-        options_layout.addWidget(self.detail_label, 6, 0)
-        options_layout.addWidget(self.detail_combo, 6, 1)
-        options_layout.addWidget(self.netlist_label, 7, 0)
-        options_layout.addWidget(self.netlist_combo, 7, 1)
+        options_layout.addWidget(self.switch_label, 4, 0)
+        options_layout.addWidget(self.switch_combo, 4, 1)
+        options_layout.addWidget(self.detail_label, 5, 0)
+        options_layout.addWidget(self.detail_combo, 5, 1)
+        options_layout.addWidget(self.netlist_label, 6, 0)
+        options_layout.addWidget(self.netlist_combo, 6, 1)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -686,8 +675,7 @@ class MainWindow(QMainWindow):
         QWidget.setTabOrder(self.image_check, self.format_combo)
         QWidget.setTabOrder(self.format_combo, self.junction_check)
         QWidget.setTabOrder(self.junction_check, self.loops_check)
-        QWidget.setTabOrder(self.loops_check, self.units_check)
-        QWidget.setTabOrder(self.units_check, self.switch_combo)
+        QWidget.setTabOrder(self.loops_check, self.switch_combo)
         QWidget.setTabOrder(self.switch_combo, self.output_edit)
         QWidget.setTabOrder(self.output_edit, self.choose_button)
         QWidget.setTabOrder(self.choose_button, self.generate_button)
@@ -726,8 +714,6 @@ class MainWindow(QMainWindow):
             bool(s.value("options/junction_dots", True, type=bool)))
         self.loops_check.setChecked(
             bool(s.value("options/show_loops", False, type=bool)))
-        self.units_check.setChecked(
-            bool(s.value("options/show_units", False, type=bool)))
         style = str(s.value("options/switch_style", "default"))
         index = self.switch_combo.findData(style)
         self.switch_combo.setCurrentIndex(max(index, 0))
@@ -749,7 +735,6 @@ class MainWindow(QMainWindow):
         s.setValue("options/export_format", self.format_combo.currentText())
         s.setValue("options/junction_dots", self.junction_check.isChecked())
         s.setValue("options/show_loops", self.loops_check.isChecked())
-        s.setValue("options/show_units", self.units_check.isChecked())
         s.setValue("options/switch_style",
                    self.switch_combo.currentData() or "default")
         s.setValue("options/detail_level", self.detail_combo.currentText())
@@ -821,7 +806,6 @@ class MainWindow(QMainWindow):
             detail_label=self.detail_combo.currentText(),
             junction_dots=self.junction_check.isChecked(),
             show_loops=self.loops_check.isChecked(),
-            show_units=self.units_check.isChecked(),
             switch_style=self.switch_combo.currentData() or "default",
             netlist=self.netlist_combo.currentData() or "",
         )
@@ -952,8 +936,14 @@ class MainWindow(QMainWindow):
             return
         self.preview_label.setSourcePixmap(pixmap)
         description = alt_text or f"Rendered schematic image {image_path}"
+        # The whole description goes to the accessible name, where a screen
+        # reader reads it on request.  The tooltip stays short on purpose:
+        # as a hover popup the full text becomes a wall that covers the
+        # window, and it is already on screen in the text box below.
         self.preview_label.setAccessibleDescription(description)
-        self.preview_label.setToolTip(description)
+        self.preview_label.setToolTip(
+            "Rendered schematic. The full description is in the "
+            "Alternative text box below.")
         self.preview_label.setVisible(True)
 
     def _render_svg(self, svg_path: str) -> Optional[QPixmap]:

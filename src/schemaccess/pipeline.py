@@ -67,7 +67,6 @@ class PipelineOptions:
     #: files or needing a LaTeX toolchain.
     dry_run: bool = False
     show_loops: bool = False
-    show_units: bool = False
 
 
 @dataclass
@@ -298,7 +297,10 @@ def run_pipeline(options: PipelineOptions,
     parse_ms = (time.perf_counter() - started) * 1000.0
     result.graph = graph
     result.warnings.extend(graph.warnings)
-    drawn = units.apply(graph) if options.show_units else graph
+    # Values are always drawn with their unit: a resistor marked 100 is
+    # 100 ohms, the same way 10m on an inductor is 10 millihenries, and a
+    # drawing that says one but not the other is just inconsistent.
+    drawn = units.apply(graph)
 
     fallbacks: Set[str] = set()
     draw_ms = text_ms = render_ms = 0.0

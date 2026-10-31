@@ -8,12 +8,12 @@ Malformed or unsupported constructs produce warnings, never crashes.
 from __future__ import annotations
 
 import os
-from typing import List, Optional
+from typing import List, Optional, Tuple
 
 from . import sexpr
-from .model import (Junction, Label, LabelKind, LibSymbol, NoConnect, PinDef,
-                    SchematicDocument, SheetRef, SymbolDot, SymbolInstance,
-                    TextItem, Wire, snap)
+from .model import (FieldText, Junction, Label, LabelKind, LibSymbol,
+                    NoConnect, PinDef, SchematicDocument, SheetRef, SymbolDot,
+                    SymbolInstance, TextItem, Wire, snap)
 
 
 class KiCadParseError(ValueError):
@@ -323,6 +323,18 @@ def _parse_symbol_instance(node: list,
         if len(prop) >= 3:
             key, val = str(prop[1]), str(prop[2])
             inst.properties[key] = val
+            # Where the author dragged the text.  Kept so the drawing
+            # can put it back in the same spot rather than wherever the
+            # drawing package would default to.
+            prop_at = sexpr.child(prop, "at")
+            if prop_at and len(prop_at) > 2:
+                try:
+                    inst.field_text[key] = FieldText(
+                        float(prop_at[1]), float(prop_at[2]),
+                        float(prop_at[3]) if len(prop_at) > 3 else 0.0,
+                        _justify_of(prop))
+                except (TypeError, ValueError):
+                    pass
             if _property_hidden(prop):
                 inst.hidden_properties.add(key)
             if key == "Reference":
@@ -342,6 +354,28 @@ def _flag(node: Optional[list]) -> Optional[bool]:
     if len(node) > 1:
         return str(node[1]).lower() not in ("no", "false")
     return True
+
+
+#: The justification tokens that say which part of the text its
+#: position refers to.  KiCad also writes 'mirror' here, which is about
+#: the direction the glyphs run, not the anchor, so it is dropped.
+_JUSTIFY_TOKENS = ("left", "right", "top", "bottom")
+
+
+def _justify_of(prop: list) -> Tuple[str, ...]:
+    """A property text's justification, from ``(effects (justify ...))``.
+
+    Empty when KiCad wrote none, which means the text is centred on its
+    position both ways.
+    """
+    effects = sexpr.child(prop, "effects")
+    if effects is None:
+        return ()
+    node = sexpr.child(effects, "justify")
+    if node is None:
+        return ()
+    return tuple(str(t) for t in node[1:]
+                 if not isinstance(t, list) and str(t) in _JUSTIFY_TOKENS)
 
 
 def _property_hidden(prop: list) -> bool:
