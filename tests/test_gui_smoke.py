@@ -19,7 +19,11 @@ pytest.importorskip("PySide6", reason="PySide6 is not installed")
 
 from PySide6.QtWidgets import QApplication, QPushButton  # noqa: E402
 
+from schemaccess.gui import main_window  # noqa: E402
 from schemaccess.gui.main_window import MainWindow  # noqa: E402
+
+#: Chicago Maroon, Virginia Tech's primary colour: RGB 134, 31, 65.
+CHICAGO_MAROON = "#861f41"
 
 
 @pytest.fixture(scope="module")
@@ -57,6 +61,30 @@ def test_gui_generate_button_exists_and_starts_disabled(window) -> None:
     # No input file has been chosen yet, so Generate must be disabled.
     assert window.input_edit.text() == ""
     assert not button.isEnabled()
+
+
+def test_gui_accent_is_chicago_maroon(window) -> None:
+    """The accent is the university colour, in both style sheets.
+
+    The shades are checked as well as the base: a hover or pressed state
+    left on the old crimson would show the wrong colour only while the
+    mouse is down, which is exactly the kind of thing nobody notices.
+    """
+    assert main_window.ACCENT == CHICAGO_MAROON
+    assert (134, 31, 65) == tuple(
+        int(CHICAGO_MAROON[i:i + 2], 16) for i in (1, 3, 5))
+
+    sheets = main_window.GENERATE_BUTTON_STYLE + main_window.DARK_THEME
+    assert CHICAGO_MAROON in sheets
+    # No placeholder survived into the style sheet Qt is handed.
+    assert "@ACCENT" not in sheets and "@FOCUS@" not in sheets
+
+    for shade in (main_window.ACCENT_HOVER, main_window.ACCENT_PRESSED,
+                  main_window.ACCENT_DISABLED):
+        red, green, blue = (int(shade[i:i + 2], 16) for i in (1, 3, 5))
+        assert red > blue > green, f"{shade} is not a maroon"
+
+    assert window.generate_button.styleSheet().count(CHICAGO_MAROON) == 1
 
 
 def test_gui_detail_defaults_to_detailed_and_can_change(window):

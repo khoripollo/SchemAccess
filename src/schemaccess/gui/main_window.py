@@ -64,13 +64,49 @@ NETLIST_CHOICES = (("None", ""), ("SPICE (.cir)", "spice"),
                    ("KiCad (.net)", "kicad"), ("Text table (.txt)", "text"),
                    ("CSV (.csv)", "csv"), ("All four", "all"))
 
+#: Chicago Maroon, Virginia Tech's primary colour: RGB 134, 31, 65.
+#: White on it is 9.2:1 contrast, so the accent is only ever used behind
+#: white or as a border.
+ACCENT = "#861f41"
+#: Hover and pressed shades, the accent at 85% and 71% brightness, which
+#: keeps the hue exactly and only darkens it.
+ACCENT_HOVER = "#721a37"
+ACCENT_PRESSED = "#5f162e"
+#: A disabled accent button: the maroon muted towards the card border
+#: grey, so it still reads as the same control switched off.
+ACCENT_DISABLED = "#4f2638"
+#: Amber focus ring, drawn because the style sheet replaces the native
+#: one.  It is 5.6:1 against the maroon and 11.4:1 against the window
+#: background, so it is visible wherever it lands.
+FOCUS_RING = "#ffbf47"
+
+_ACCENT_TOKENS = (
+    ("@ACCENT_HOVER@", ACCENT_HOVER),
+    ("@ACCENT_PRESSED@", ACCENT_PRESSED),
+    ("@ACCENT_DISABLED@", ACCENT_DISABLED),
+    ("@ACCENT@", ACCENT),
+    ("@FOCUS@", FOCUS_RING),
+)
+
+
+def _themed(style: str) -> str:
+    """Substitute the accent colours into a style sheet.
+
+    Qt style sheets are full of braces, so they cannot be f-strings; the
+    placeholders work the way ``@CHECK@`` already does below.  The point
+    is that the brand colour is written once -- re-theming means editing
+    :data:`ACCENT` and its shades, not hunting through the CSS.
+    """
+    for token, colour in _ACCENT_TOKENS:
+        style = style.replace(token, colour)
+    return style
+
+
 #: The Generate button is the main action, so it is large and carries the
-#: accent colour.  White on #c2103a is 7.1:1 contrast; the amber focus ring
-#: stands out against both the crimson and the dark window background (the
-#: style sheet replaces the native focus ring, so one is drawn here).
-GENERATE_BUTTON_STYLE = """
+#: accent colour.
+GENERATE_BUTTON_STYLE = _themed("""
 QPushButton {
-    background-color: #c2103a;
+    background-color: @ACCENT@;
     color: #ffffff;
     border: 3px solid transparent;
     border-radius: 8px;
@@ -78,11 +114,12 @@ QPushButton {
     font-weight: bold;
     padding: 8px 20px;
 }
-QPushButton:hover { background-color: #a50d31; }
-QPushButton:pressed { background-color: #8a0b29; }
-QPushButton:focus { border-color: #ffbf47; }
-QPushButton:disabled { background-color: #4a3038; color: #9b8d92; }
-"""
+QPushButton:hover { background-color: @ACCENT_HOVER@; }
+QPushButton:pressed { background-color: @ACCENT_PRESSED@; }
+QPushButton:focus { border-color: @FOCUS@; }
+QPushButton:disabled { background-color: @ACCENT_DISABLED@;
+                       color: #9b8d92; }
+""")
 
 #: Dark card theme.  Every colour here was checked against the text it
 #: carries: body text #e9e9ec on card #1b1b1f is 13:1, the muted labels
@@ -90,7 +127,7 @@ QPushButton:disabled { background-color: #4a3038; color: #9b8d92; }
 #: schematic preview keeps a white backing because the rendered drawing is
 #: black ink on transparency and would vanish on a dark panel.
 #: ``@CHECK@`` is replaced at runtime with the path of check.svg.
-DARK_THEME = """
+DARK_THEME = _themed("""
 QWidget { background-color: #121214; color: #e9e9ec;
           font-size: 13px; }
 
@@ -115,7 +152,7 @@ QGroupBox::title {
     color: #f2f2f4;
     font-size: 15px;
     font-weight: 700;
-    border-left: 3px solid #c2103a;
+    border-left: 3px solid @ACCENT@;
 }
 
 QLabel { background: transparent; color: #a6a6ae; }
@@ -126,11 +163,11 @@ QLineEdit, QPlainTextEdit, QComboBox, QAbstractItemView {
     border-radius: 6px;
     padding: 6px 8px;
     color: #e9e9ec;
-    selection-background-color: #c2103a;
+    selection-background-color: @ACCENT@;
     selection-color: #ffffff;
 }
 QLineEdit:focus, QPlainTextEdit:focus, QComboBox:focus {
-    border-color: #c2103a;
+    border-color: @ACCENT@;
 }
 QLineEdit:read-only { color: #c9c9d0; }
 
@@ -142,7 +179,7 @@ QComboBox::down-arrow {
 }
 QComboBox QAbstractItemView {
     border: 1px solid #35353e;
-    selection-background-color: #c2103a;
+    selection-background-color: @ACCENT@;
 }
 
 QPushButton {
@@ -154,7 +191,7 @@ QPushButton {
 }
 QPushButton:hover { background-color: #33333c; }
 QPushButton:pressed { background-color: #26262d; }
-QPushButton:focus { border-color: #ffbf47; }
+QPushButton:focus { border-color: @FOCUS@; }
 QPushButton:disabled { color: #70707a; border-color: #2b2b32; }
 
 QCheckBox { background: transparent; color: #e9e9ec; spacing: 8px; }
@@ -165,11 +202,11 @@ QCheckBox::indicator {
     background-color: #232329;
 }
 QCheckBox::indicator:checked {
-    background-color: #c2103a;
-    border-color: #c2103a;
+    background-color: @ACCENT@;
+    border-color: @ACCENT@;
     image: url("@CHECK@");
 }
-QCheckBox::indicator:focus { border-color: #ffbf47; }
+QCheckBox::indicator:focus { border-color: @FOCUS@; }
 
 QTableWidget {
     background-color: #1b1b1f;
@@ -194,7 +231,7 @@ QToolTip {
     background-color: #232329; color: #e9e9ec;
     border: 1px solid #35353e; padding: 4px;
 }
-"""
+""")
 
 _SETTINGS_ORG = "SchemAccess"
 _SETTINGS_APP = "SchemAccess"
