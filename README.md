@@ -136,6 +136,10 @@ schemaccess INPUT.kicad_sch [options]
 | `--loops` | Draw and describe the loop currents i1, i2, ... for teaching mesh analysis (see [Loop currents](#loop-currents)) |
 | `--units` | Write units after the values on the drawing (`1` → `1 H`, `22n` → `22 nF`, `100k` → `100 kΩ`) |
 | `--netlist FORMATS` | Also write netlists: a comma-separated list of `spice`, `kicad`, `text`, `csv`, or `all` |
+| `--compare-net FILE` | Check the conversion against a `.net` netlist exported from KiCad (see [Validating against KiCad](#validating-against-kicad)); writes no files, exits 1 on a disagreement |
+| `--compare-cir FILE` | The same check against a `.cir` SPICE deck exported from KiCad; may be combined with `--compare-net` |
+| `--generated-net FILE` | Compare this already-written `.net` against `--compare-net` instead of converting the schematic again |
+| `--generated-cir FILE` | Compare this already-written `.cir` against `--compare-cir` instead of converting the schematic again |
 | `--svg-preview` | Also write `<stem>_preview.svg`, drawn without LaTeX |
 | `--pdf-preview` | Also write `<stem>_preview.pdf`, the same drawing as a vector PDF |
 | `--print-alt` | Also print the generated alt text to stdout |
@@ -154,6 +158,7 @@ schemaccess board.kicad_sch --no-image --print-alt --quiet
 schemaccess board.kicad_sch --no-junction-dots --format pdf
 schemaccess board.kicad_sch --netlist all --svg-preview --pdf-preview
 schemaccess board.kicad_sch --netlist spice,csv --no-image
+schemaccess board.kicad_sch --compare-net board.net --compare-cir board.cir
 ```
 
 Giving both `--no-alt-text` and `--no-image` produces no files but still
@@ -238,6 +243,88 @@ R2 N2 0 100
 * Add an analysis, e.g.  .op   .tran 1u 5m   .ac dec 20 1 1Meg
 .end
 ```
+
+## Validating against KiCad
+
+A conversion is only trustworthy if SchemAccess read the schematic the way
+KiCad does. `--compare-net` and `--compare-cir` check exactly that against
+KiCad's own netlist for the same file, so KiCad becomes an independent
+second opinion rather than something you have to take on trust.
+
+Converting never needs this: a `.kicad_sch` file is still the only input,
+and the GUI is unchanged. The check is a separate, optional run.
+
+1. Convert as usual.
+2. Export the reference from KiCad — `Tools > Generate Netlist` in
+   Eeschema, or on the command line:
+
+```
+kicad-cli sch export netlist --format kicadsexpr -o board.net board.kicad_sch
+```
+
+```
+kicad-cli sch export netlist --format spice -o board.cir board.kicad_sch
+```
+
+3. Point SchemAccess at them. Either file on its own is fine, or both:
+
+```
+schemaccess board.kicad_sch --compare-net board.net --compare-cir board.cir
+```
+
+The run writes nothing, prints `PASS` or `FAIL` per file, and exits 1 if
+anything disagreed:
+
+```
+PASS  board.net  (KiCad reference vs SchemAccess)
+  checked:
+    3 component(s) with matching references and values
+    3 net(s) joining the same pins on both sides
+    ground on R2 pin 1, V1 pin 2
+```
+
+### Comparing netlists already on disk
+
+By default the schematic is converted again, in memory, to produce the
+netlist to compare — the `.kicad_sch` file is the input, and the reference
+is the only thing read from disk. To compare a netlist that already exists
+instead — one an earlier run wrote to `accessible/`, or one from the web
+front end or another machine — name it with `--generated-net` /
+`--generated-cir`:
+
+```bash
+schemaccess --compare-net kicad/board.net --generated-net accessible/board.net
+```
+
+When every comparison has both of its files, nothing needs converting and
+the schematic can be left off the command line entirely. Mixing the two
+modes is fine: give `--generated-cir` and not `--generated-net`, and the
+SPICE deck is read from disk while the `.net` is regenerated from the
+schematic (which is then still required).
+
+Both `.net` files record the schematic they were written from, so
+comparing two that came from *different* schematics is reported as a
+warning either way — with or without a schematic on the command line.
+
+**Net names are never compared.** KiCad calls a net `Net-(R1-Pad1)` or
+`/VOUT` where SchemAccess calls it `N1` or `VOUT`, and a SPICE ground node
+is `GND` on one side and `0` on the other — none of which is electrical.
+Two nets match when they join **the same component pins**, whatever either
+tool calls them, and two SPICE decks match when zipping the node lists of
+every shared device gives a one-to-one mapping between their node names.
+
+What is compared: the components and their values, which pins share a net,
+which net is ground, and each SPICE device's node count, node order and
+value. Differences in formatting, ordering and naming are ignored.
+
+Anything that *could not* be compared is listed separately, with the
+reason, and does not count as agreement — for instance KiCad's SPICE
+writer emits a bare `D1 __D1` for any symbol it cannot map to an ngspice
+primitive, and writes `_NO_NET_` for every net it could not name, so those
+positions carry no information to check against.
+
+The same comparison runs over the whole fixture corpus in the test suite;
+see [docs/TESTING.md](docs/TESTING.md).
 
 ## Drawing without LaTeX
 
@@ -420,10 +507,17 @@ KiCad to silence the warning.
 ## Tests
 
 ```
-python -m pytest                        # everything (~790 tests)
+python -m pytest                        # everything (~1900 tests)
 python -m pytest -v                     # one line per test, pass/fail
-python -m pytest -m "not slow"          # skip the LaTeX compilation tests
+python -m pytest -m "not slow"          # skip the tests that run LaTeX or KiCad
+python -m pytest tests/test_kicad_reference.py -vv   # just the KiCad comparison
 ```
+
+The `slow` tests drive external tools — `pdflatex` and the PDF converters
+for the rendering tests, `kicad-cli` for the comparison against KiCad's own
+netlists (see [Validating against KiCad](#validating-against-kicad)). They
+skip rather than fail when the tool is not installed, so the suite passes on
+a bare machine.
 
 Two reports print measured numbers rather than just passing. Use `-s`, which
 stops pytest from swallowing their output:

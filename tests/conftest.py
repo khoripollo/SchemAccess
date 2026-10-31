@@ -12,6 +12,9 @@ Provides:
   tests can never interfere through shared mutable state);
 * ``LATEX_AVAILABLE`` / ``latex_available`` - whether a LaTeX toolchain
   able to produce PDFs is on ``PATH``;
+* ``KICAD_CLI`` / ``kicad_reference`` - KiCad's own command-line tool and a
+  callable that exports a reference netlist with it, for the tests that
+  check SchemAccess's netlists against KiCad's;
 * an autouse session fixture that regenerates ``big_200.kicad_sch`` with
   ``gen_big.py`` when it is missing;
 * registration of the ``slow`` marker.
@@ -19,11 +22,14 @@ Provides:
 
 from __future__ import annotations
 
+import glob
 import json
+import os
+import shutil
 import subprocess
 import sys
 from pathlib import Path
-from typing import Callable, Dict
+from typing import Callable, Dict, Optional
 
 import pytest
 
@@ -35,6 +41,46 @@ FIXTURES_DIR = Path(__file__).resolve().parent / "fixtures"
 
 #: True when pdflatex is on PATH (evaluated once, at collection time).
 LATEX_AVAILABLE: bool = Renderer().available()
+
+#: ``--format`` value kicad-cli wants for each netlist kind SchemAccess
+#: writes, keyed by the extension SchemAccess gives that kind.
+KICAD_NETLIST_FORMATS: Dict[str, str] = {
+    "net": "kicadsexpr",
+    "cir": "spice",
+}
+
+# Where KiCad puts its command-line tool when it is not on PATH.  The
+# globs are sorted in reverse so the newest installed version wins.
+_KICAD_CLI_GLOBS = (
+    r"C:\Program Files\KiCad\*\bin\kicad-cli.exe",
+    r"C:\Program Files (x86)\KiCad\*\bin\kicad-cli.exe",
+    "/Applications/KiCad/KiCad.app/Contents/MacOS/kicad-cli",
+    "/usr/lib/kicad/bin/kicad-cli",
+    "/snap/bin/kicad.kicad-cli",
+)
+
+
+def _find_kicad_cli() -> Optional[str]:
+    """Locate ``kicad-cli``, or return None when KiCad is not installed.
+
+    ``SCHEMACCESS_KICAD_CLI`` overrides the search, so a machine with
+    several KiCad versions can say which one is the reference.
+    """
+    override = os.environ.get("SCHEMACCESS_KICAD_CLI", "").strip()
+    if override:
+        return override if os.path.isfile(override) else None
+    found = shutil.which("kicad-cli")
+    if found:
+        return found
+    for pattern in _KICAD_CLI_GLOBS:
+        matches = sorted(glob.glob(pattern), reverse=True)
+        if matches:
+            return matches[0]
+    return None
+
+
+#: KiCad's command-line tool, or None (evaluated once, at collection time).
+KICAD_CLI: Optional[str] = _find_kicad_cli()
 
 
 def _read_manifest() -> Dict[str, dict]:
@@ -128,3 +174,43 @@ def latex_available() -> bool:
 def load() -> Callable[[str], CircuitGraph]:
     """Callable fixture: ``load(name) -> CircuitGraph`` (fresh graph)."""
     return load_graph
+
+
+@pytest.fixture(scope="session")
+def kicad_reference(tmp_path_factory) -> Callable[[Path, str], str]:
+    """Callable fixture: ``kicad_reference(schematic, kind) -> text``.
+
+    Runs ``kicad-cli sch export netlist`` on *schematic* and returns what
+    KiCad wrote, so a test can hold SchemAccess's own netlist against it.
+    *kind* is ``'net'`` for KiCad's S-expression netlist or ``'cir'`` for
+    a SPICE deck.
+
+    Each (schematic, kind) pair is exported once per session and cached:
+    starting kicad-cli costs about half a second whatever the file size,
+    which is most of the runtime of the whole comparison suite.
+    """
+    if KICAD_CLI is None:
+        pytest.skip("kicad-cli not found; set SCHEMACCESS_KICAD_CLI to "
+                    "point at it")
+    out_dir = tmp_path_factory.mktemp("kicad_reference")
+    cache: Dict[tuple, str] = {}
+
+    def export(schematic: Path, kind: str) -> str:
+        key = (str(schematic), kind)
+        if key in cache:
+            return cache[key]
+        target = out_dir / f"{schematic.stem}.{kind}"
+        completed = subprocess.run(
+            [KICAD_CLI, "sch", "export", "netlist",
+             "--format", KICAD_NETLIST_FORMATS[kind],
+             "-o", str(target), str(schematic)],
+            capture_output=True, text=True, timeout=300)
+        if completed.returncode != 0 or not target.is_file():
+            pytest.fail(
+                f"kicad-cli could not export a {kind} netlist for "
+                f"{schematic.name} (exit {completed.returncode}):\n"
+                f"{completed.stdout}{completed.stderr}")
+        cache[key] = target.read_text(encoding="utf-8-sig", errors="replace")
+        return cache[key]
+
+    return export

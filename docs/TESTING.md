@@ -8,17 +8,18 @@ From the project root:
 python -m pytest -q
 ```
 
-To skip the slow tests that actually compile LaTeX (they invoke `pdflatex`
-and the PDF converters, so they need the full toolchain and take seconds
-per case):
+To skip the slow tests, which drive external tools — `pdflatex` and the
+PDF converters for the rendering tests, and `kicad-cli` for the
+comparison against KiCad's own netlists:
 
 ```
 python -m pytest -q -m "not slow"
 ```
 
-Every test that compiles LaTeX or converts a PDF is marked
+Every test that compiles LaTeX, converts a PDF or runs KiCad is marked
 `@pytest.mark.slow`; everything else runs in well under a minute with no
-external tools installed.
+external tools installed. The slow tests skip rather than fail when the
+tool they need is missing, so the whole suite passes on a bare machine.
 
 ## Test data
 
@@ -128,3 +129,76 @@ The browser front end under `web/` has no separate suite: it runs the
 same library, so `test_netlist.py` and `test_svgpreview.py` cover what it
 shows. `web/driver.py` is exercised by hand with
 `python -m http.server --directory web`.
+
+## Checking against KiCad itself
+
+Everything above compares SchemAccess with SchemAccess: the manifest
+records what `netbuilder` reports, and `test_netlist.py` re-reads each
+deck against the same graph that produced it. That catches regressions
+but not a *shared* misreading — if the parser and the net builder agree on
+a wrong circuit, nothing notices.
+
+`tests/test_kicad_reference.py` closes that gap by asking KiCad. For every
+valid fixture it runs `kicad-cli sch export netlist` twice (once for the
+S-expression netlist, once for a SPICE deck), generates the same two from
+SchemAccess, and compares them with `schemaccess.netcompare`.
+
+```
+python -m pytest tests/test_kicad_reference.py -vv
+```
+
+`-vv` lists every fixture with its verdict; a failure prints the specific
+differences. The tests need KiCad installed and carry `@pytest.mark.slow`,
+since each export starts a fresh KiCad process (about half a second
+apiece, whatever the file size — roughly 30 s for the corpus). They
+**skip**, rather than fail, when `kicad-cli` cannot be found.
+`tests/conftest.py` looks for it on `PATH` and in the usual install
+directories; `SCHEMACCESS_KICAD_CLI` overrides the search when a machine
+has several KiCad versions.
+
+| File | What it proves |
+| --- | --- |
+| `tests/test_netcompare.py` | The comparison itself, on netlists written out by hand, so it runs with no KiCad installed. Values that mean the same thing agree and values that differ do not, with a *relative* tolerance (an absolute one would call 22 pF and 23 pF equal). Power symbols are not components. The same circuit under different net names passes; splitting a net, merging two nets, losing a component, changing a value, moving ground, or losing a pin from a shared net all fail, and the message names the pin or part. For SPICE: a consistent renaming of nodes passes, a swapped node pair or two nets merged into one node fails, ground must become node `0`, and a wrong magnitude fails. Things that cannot be compared — a device KiCad wrote no nodes for, a device SchemAccess says in a comment that it left out, two different op-amp subcircuits, KiCad's `_NO_NET_` placeholder — are notes, while a device dropped *without* explanation and a device SchemAccess invented are failures. |
+| `tests/test_kicad_reference.py` | Every valid fixture, both formats, against KiCad's own export. Two tests guard the guard: one pins the floor so an empty netlist could not pass in silence (the report must say it checked components, nets and ground), and one rewires a resistor onto the wrong net and checks the comparison names it. `KNOWN_DIVERGENCES` records the cases where the two tools genuinely disagree, each as `xfail(strict=True)` with the reason, so closing a gap turns the entry into a failure and forces the table to be updated. |
+
+### Recorded divergences
+
+Two fixtures disagree, and both are real differences in how the tools read
+a file rather than shortcomings of the comparison:
+
+- **`power_symbols.kicad_sch`** — SchemAccess treats every ground symbol
+  as the same ground, so `GND`, `GNDA`, `GNDD`, `GNDREF`, `Earth` and the
+  rest become one net; KiCad keeps each name as a net of its own.
+  Unifying them is what lets a deck have a single SPICE node `0` and the
+  alt text say "ground", and it is why this fixture's manifest expects 16
+  nets rather than KiCad's count.
+- **`mixed_symbols.kicad_sch`** — SchemAccess joins a wire whose endpoint
+  lands part-way along another wire even when no junction dot is stored
+  there (see step 2 of `netbuilder.build_graph`); KiCad needs the
+  junction and leaves the two wires apart. This fixture is hand-written
+  and stores only two junctions, so SchemAccess reads one 31-pin net where
+  KiCad reads about thirty separate ones. Schematics Eeschema itself wrote
+  always carry the junction, which is why every other fixture agrees.
+
+### The same check on your own schematic
+
+The fixture corpus needs no netlists committed to the repository, and
+users never have to supply one either. For a schematic that is not a
+fixture, export the reference from KiCad and use the CLI:
+
+```
+schemaccess your.kicad_sch --compare-net your.net --compare-cir your.cir
+```
+
+That runs the identical comparison, writes nothing, prints `PASS`/`FAIL`
+with any differences, and exits 1 on a disagreement.
+
+To compare netlists that already exist on disk rather than converting the
+schematic again — an earlier run's output, or files from another machine —
+name the SchemAccess side too, and the schematic is not needed at all:
+
+```
+schemaccess --compare-net kicad/your.net --generated-net accessible/your.net
+```
+
+See [Validating against KiCad](../README.md#validating-against-kicad).
