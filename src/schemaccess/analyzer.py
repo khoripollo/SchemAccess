@@ -476,9 +476,14 @@ def _analyze_opamp(graph: CircuitGraph, comp: Component,
                     f"non-inverting input at {nname(p_net)}.")
             return Structure("opamp_positive_feedback", desc,
                              [comp.ref, positive[0]], [p_net, out_net])
-        notes.append(f"No feedback path found for operational amplifier "
-                     f"{label}; it is running open-loop, which is the "
-                     f"usual arrangement for a comparator.")
+        # No feedback at all is not a fault, and these notes are read out
+        # under "Warnings", so there is nothing to say here.  Open-loop is
+        # how a comparator is wired; it is equally how a spare half of a
+        # dual op amp sits when it was dropped on the sheet and left
+        # alone, so naming it "a comparator" would be a guess that is
+        # wrong as often as it is right.  Nothing is lost by silence:
+        # where each pin goes is already in the sentence about the part
+        # and in both connection listings.
         return None
     in_loop = set(feedback) | {r for order in chained for r in order}
     parts = list(feedback) + [f"the series chain {_join(order)}" for order in chained]

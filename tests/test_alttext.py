@@ -11,7 +11,7 @@ from __future__ import annotations
 import pytest
 
 from conftest import VALID_FIXTURES, load_graph
-from schemaccess import alttext
+from schemaccess import alttext, analyzer
 from schemaccess.model import NetKind
 from schemaccess.netbuilder import node_names
 
@@ -100,6 +100,34 @@ def test_fun6_polar_value_described_in_words():
     assert format_value("10<1", ac) == "10 Volt at an angle of 1 degree"
     # Non-polar values are untouched.
     assert format_value("5V", ac) == "5 Volt"
+
+
+def test_an_opamp_without_feedback_is_not_a_warning(load) -> None:
+    """Open-loop is a topology, not a fault.
+
+    These notes are read out under "Warnings", so one that ends "which is
+    the usual arrangement for a comparator" is announcing that nothing is
+    wrong -- and it guesses: an op amp with no feedback is equally the
+    spare half of a dual part that was placed and left alone.  Nothing is
+    lost by silence, because where each pin goes is still stated three
+    times over.
+    """
+    for name in ("opamp_partnumber.kicad_sch", "mixed_symbols.kicad_sch"):
+        graph = load(name)
+        notes = analyzer.analyze(graph).notes
+        assert not any("feedback path" in note or "open-loop" in note
+                       for note in notes), f"{name}: {notes}"
+
+        text = alttext.generate(graph, "detailed")
+        assert "open-loop" not in text and "comparator" not in text
+        # The connections the note sat next to are untouched.
+        assert "operational amplifier with" in text
+        assert "U1: pin" in text
+
+    # Only that one note went: an op amp whose feedback the analyzer can
+    # see but cannot name is a genuine "could not work this out".
+    notes = analyzer.analyze(load("mixed_symbols.kicad_sch")).notes
+    assert any("configuration was not recognized" in note for note in notes)
 
 
 def test_fun6_polar_source_reads_naturally():
