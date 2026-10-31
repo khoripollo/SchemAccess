@@ -338,10 +338,10 @@ def test_loop6_pipeline_reports_and_warns(fixtures_dir, tmp_path) -> None:
 def test_loop6_gui_option() -> None:
     pytest.importorskip("PySide6")
     from schemaccess.gui.main_window import make_pipeline_options
-    options = make_pipeline_options("a.kicad_sch", "out", True, True, "All",
+    options = make_pipeline_options("a.kicad_sch", "out", "All",
                                     show_loops=True)
     assert options.show_loops is True
-    assert make_pipeline_options("a.kicad_sch", "out", True, True,
+    assert make_pipeline_options("a.kicad_sch", "out",
                                  "All").show_loops is False
 
 

@@ -213,8 +213,6 @@ def default_output_dir(input_path: str) -> str:
 def make_pipeline_options(
     input_path: str,
     output_dir: str,
-    generate_alt_text: bool,
-    generate_image: bool,
     export_format_label: str,
     detail_label: str = "Detailed",
     junction_dots: bool = True,
@@ -229,12 +227,15 @@ def make_pipeline_options(
     mapped to the lowercase values the pipeline expects.  Unknown labels
     fall back to the pipeline defaults (``"all"`` / ``"standard"``)
     rather than raising.
+
+    The alt text and the drawing are both always produced - they are
+    what the application is for, so the window offers no switch for
+    them.  The command line still has ``--no-alt-text`` / ``--no-image``
+    for scripted runs that want only one of the two.
     """
     return PipelineOptions(
         input_path=input_path,
         output_dir=output_dir,
-        generate_alt_text=generate_alt_text,
-        generate_image=generate_image,
         export_format=FORMAT_VALUES.get(export_format_label, "all"),
         detail_level=DETAIL_VALUES.get(detail_label, GUI_DETAIL_LEVEL),
         junction_dots=junction_dots,
@@ -348,7 +349,6 @@ class MainWindow(QMainWindow):
         self._build_ui()
         self._fit_to_screen()
         self._restore_settings()
-        self._update_dependent_widgets()
         self._update_generate_enabled()
         self.statusBar().showMessage(
             "Ready. Choose a KiCad schematic file to begin.")
@@ -441,31 +441,14 @@ class MainWindow(QMainWindow):
         options_group = QGroupBox("Output Options", self._controls)
         options_layout = QGridLayout(options_group)
 
-        self.alt_text_check = QCheckBox("Generate &alternative text", options_group)
-        self.alt_text_check.setChecked(True)
-        self.alt_text_check.setAccessibleName("Generate alt text")
-        self.alt_text_check.setAccessibleDescription(
-            "When checked, a natural-language description of the circuit "
-            "is written to a text file and shown in the results area.")
-        self.alt_text_check.toggled.connect(self._on_option_toggled)
-
-        self.image_check = QCheckBox("Generate i&mage (CircuiTikZ)",
-                                     options_group)
-        self.image_check.setChecked(True)
-        self.image_check.setAccessibleName("Generate image")
-        self.image_check.setAccessibleDescription(
-            "When checked, a CircuiTikZ rendering of the schematic is "
-            "exported in the chosen format.")
-        self.image_check.toggled.connect(self._on_option_toggled)
-
         self.format_label = QLabel("&Export format:", options_group)
         self.format_combo = QComboBox(options_group)
         self.format_combo.addItems(list(FORMAT_LABELS))
         self.format_combo.setCurrentText("All")
         self.format_combo.setAccessibleName("Export format")
         self.format_combo.setAccessibleDescription(
-            "Image export format: PDF, SVG, PNG, or All three. Only used "
-            "when Generate Image is checked.")
+            "Image export format for the CircuiTikZ drawing: PDF, SVG, "
+            "PNG, or All three.")
         self.format_label.setBuddy(self.format_combo)
 
         self.junction_check = QCheckBox("Show &junction dots", options_group)
@@ -512,8 +495,7 @@ class MainWindow(QMainWindow):
         self.detail_combo.setAccessibleDescription(
             "How much the alt text says. Short gives the counts and parts, "
             "Standard adds how they connect, Detailed adds the detected "
-            "structures and every pin. Only used when Generate Alt Text is "
-            "checked.")
+            "structures and every pin.")
         self.detail_label.setBuddy(self.detail_combo)
 
         self.netlist_label = QLabel("&Netlists:", options_group)
@@ -528,18 +510,16 @@ class MainWindow(QMainWindow):
         self.netlist_label.setBuddy(self.netlist_combo)
         self.netlist_combo.currentIndexChanged.connect(self._on_option_toggled)
 
-        options_layout.addWidget(self.alt_text_check, 0, 0)
-        options_layout.addWidget(self.image_check, 0, 1)
-        options_layout.addWidget(self.format_label, 1, 0)
-        options_layout.addWidget(self.format_combo, 1, 1)
-        options_layout.addWidget(self.junction_check, 2, 0, 1, 2)
-        options_layout.addWidget(self.loops_check, 3, 0, 1, 2)
-        options_layout.addWidget(self.switch_label, 4, 0)
-        options_layout.addWidget(self.switch_combo, 4, 1)
-        options_layout.addWidget(self.detail_label, 5, 0)
-        options_layout.addWidget(self.detail_combo, 5, 1)
-        options_layout.addWidget(self.netlist_label, 6, 0)
-        options_layout.addWidget(self.netlist_combo, 6, 1)
+        options_layout.addWidget(self.format_label, 0, 0)
+        options_layout.addWidget(self.format_combo, 0, 1)
+        options_layout.addWidget(self.junction_check, 1, 0, 1, 2)
+        options_layout.addWidget(self.loops_check, 2, 0, 1, 2)
+        options_layout.addWidget(self.switch_label, 3, 0)
+        options_layout.addWidget(self.switch_combo, 3, 1)
+        options_layout.addWidget(self.detail_label, 4, 0)
+        options_layout.addWidget(self.detail_combo, 4, 1)
+        options_layout.addWidget(self.netlist_label, 5, 0)
+        options_layout.addWidget(self.netlist_combo, 5, 1)
         controls_layout.addWidget(options_group)
 
         # -- OUTPUT FOLDER ---------------------------------------------------
@@ -670,9 +650,7 @@ class MainWindow(QMainWindow):
 
         # -- logical tab order -----------------------------------------------
         QWidget.setTabOrder(self.input_edit, self.browse_button)
-        QWidget.setTabOrder(self.browse_button, self.alt_text_check)
-        QWidget.setTabOrder(self.alt_text_check, self.image_check)
-        QWidget.setTabOrder(self.image_check, self.format_combo)
+        QWidget.setTabOrder(self.browse_button, self.format_combo)
         QWidget.setTabOrder(self.format_combo, self.junction_check)
         QWidget.setTabOrder(self.junction_check, self.loops_check)
         QWidget.setTabOrder(self.loops_check, self.switch_combo)
@@ -703,10 +681,6 @@ class MainWindow(QMainWindow):
         output_dir = str(s.value("output/dir", "", type=str))
         if output_dir:
             self.output_edit.setText(output_dir)
-        self.alt_text_check.setChecked(
-            bool(s.value("options/generate_alt_text", True, type=bool)))
-        self.image_check.setChecked(
-            bool(s.value("options/generate_image", True, type=bool)))
         fmt = str(s.value("options/export_format", "All", type=str))
         if fmt in FORMAT_LABELS:
             self.format_combo.setCurrentText(fmt)
@@ -729,9 +703,6 @@ class MainWindow(QMainWindow):
         s = self._settings
         s.setValue("input/last_dir", self._last_input_dir)
         s.setValue("output/dir", self.output_edit.text())
-        s.setValue("options/generate_alt_text",
-                   self.alt_text_check.isChecked())
-        s.setValue("options/generate_image", self.image_check.isChecked())
         s.setValue("options/export_format", self.format_combo.currentText())
         s.setValue("options/junction_dots", self.junction_check.isChecked())
         s.setValue("options/show_loops", self.loops_check.isChecked())
@@ -775,33 +746,17 @@ class MainWindow(QMainWindow):
             f"Selected {os.path.basename(path)}. Press Generate when ready.")
 
     def _on_option_toggled(self, _checked: bool) -> None:
-        self._update_dependent_widgets()
         self._update_generate_enabled()
 
-    def _update_dependent_widgets(self) -> None:
-        """Enable/disable the combos that depend on the checkboxes."""
-        image_on = self.image_check.isChecked()
-        self.format_combo.setEnabled(image_on)
-        self.format_label.setEnabled(image_on)
-        alt_on = self.alt_text_check.isChecked()
-        self.detail_combo.setEnabled(alt_on)
-        self.detail_label.setEnabled(alt_on)
-
     def _update_generate_enabled(self) -> None:
-        """Generate needs an input file and at least one output selected."""
-        has_input = bool(self.input_edit.text())
-        any_output = (self.alt_text_check.isChecked()
-                      or self.image_check.isChecked()
-                      or bool(self.netlist_combo.currentData()))
-        self.generate_button.setEnabled(has_input and any_output)
+        """Generate needs an input file; the outputs are not optional."""
+        self.generate_button.setEnabled(bool(self.input_edit.text()))
 
     def current_options(self) -> PipelineOptions:
         """Return :class:`PipelineOptions` reflecting the current UI state."""
         return make_pipeline_options(
             input_path=self.input_edit.text(),
             output_dir=self.output_edit.text(),
-            generate_alt_text=self.alt_text_check.isChecked(),
-            generate_image=self.image_check.isChecked(),
             export_format_label=self.format_combo.currentText(),
             detail_label=self.detail_combo.currentText(),
             junction_dots=self.junction_check.isChecked(),
