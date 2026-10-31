@@ -82,7 +82,8 @@ results on the right. In tab order:
      loop current (i1, i2, ...) and describe it in the alt text. Off by
      default; see [Loop currents](#loop-currents).
    - **Description detail** (Alt+D): *Short*, *Standard* or *Detailed*
-     (the default) alt text.
+     (the default) alt text. *Detailed* also lists every connection twice,
+     by component and by node — see [Example output](#example-output).
    - **Netlists** (Alt+N): also write a SPICE deck, a KiCad netlist, a
      readable net table, a CSV, or all four. *None* by default.
 3. **Output Folder** — defaults to an `accessible` folder next to the input
@@ -435,6 +436,31 @@ Between ground and node 2, a 100 Ohm resistor labelled R2 is connected in parall
 Between ground and node 2, a 5 Volt voltage source labelled V1 is connected in series with a 20 Ohm resistor labelled R1, these elements are connected at node 1.
 The positive terminal of the voltage source is connected to node 1 and the negative terminal is connected to ground.
 ```
+
+`detailed` adds the detected structures and then lists the wiring twice
+over — once per component, once per node:
+
+```
+Detected structures:
+R1 and R2 form a voltage divider between node 1 and ground, with the output tapped at node 2.
+R1 and C1 form an RC low-pass filter with input at node 1 and output at node 2.
+Connections by component:
+V1: pin 1 (+) to node 1; pin 2 (-) to ground.
+C1: pin 1 to node 2; pin 2 to ground.
+R1: pin 1 to node 1; pin 2 to node 2.
+R2: pin 1 to node 2; pin 2 to ground.
+Connections by node:
+Ground joins V1 pin 2 (-), C1 pin 2, and R2 pin 2.
+Node 1 joins V1 pin 1 (+) and R1 pin 1.
+Node 2 joins C1 pin 1, R1 pin 2, and R2 pin 1.
+```
+
+The same connections read from either side, because they answer different
+questions: *what is R1 wired to?* and *what meets at node 2?* The node
+view is usually the easier one to follow — it is how a circuit is traced
+by hand, and how nodal analysis is set up. It names a terminal by its role
+where the part has one, so an op-amp node reads `Node 2 joins R1 pin 2,
+R2 pin 1, and the inverting input of U1.`
 
 And a snippet of the generated `rc_divider.tex`:
 

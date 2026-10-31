@@ -21,7 +21,7 @@ from typing import Dict, List, Optional, Sequence, Tuple
 
 from . import analyzer
 from .loops import find_meshes, same_way
-from .model import (CircuitGraph, Component, ComponentType, NetKind,
+from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
                     PinConnection)
 from .netbuilder import node_names
 
@@ -296,15 +296,39 @@ def _is_dangling(graph: CircuitGraph, pin: PinConnection) -> bool:
     return net.kind == NetKind.ANONYMOUS and len(net.pins) <= 1
 
 
+def _pin_phrase(comp: Component, pin: PinConnection) -> str:
+    """Name a pin from the net's side: 'R1 pin 2' / 'the base of Q1'.
+
+    Listing what meets at a node puts the pin first and the part second,
+    the opposite of a sentence about the part, so a numbered terminal
+    reads better with its reference in front and a named one with its
+    reference behind.
+    """
+    label = _pin_label(comp, pin)
+    if label.startswith("pin ") or label[-1:].isdigit():
+        return f"{comp.ref} {label}"
+    return f"the {label} of {comp.ref}"
+
+
+def _is_node(net: Net) -> bool:
+    """True for a net the circuit treats as a node.
+
+    Two or more pins have to meet for there to be a junction at all; a
+    ground net is the exception, because the ground symbol is the other
+    thing joined to it.  This is the same rule the counts sentence uses,
+    so the listing never has more or fewer entries than it announced.
+    """
+    return (len(net.pins) >= 2
+            or (net.kind == NetKind.GROUND and bool(net.pins)))
+
+
 # ---------------------------------------------------------------------------
 # Section builders
 # ---------------------------------------------------------------------------
 
 def _counts_sentence(graph: CircuitGraph) -> str:
     n_elements = len(graph.components)
-    n_nodes = sum(1 for net in graph.nets
-                  if len(net.pins) >= 2
-                  or (net.kind == NetKind.GROUND and net.pins))
+    n_nodes = sum(1 for net in graph.nets if _is_node(net))
     verb = "is" if n_elements == 1 else "are"
     element_word = "element" if n_elements == 1 else "elements"
     node_word = "node" if n_nodes == 1 else "nodes"
@@ -446,6 +470,50 @@ def _short_lines(graph: CircuitGraph) -> List[str]:
     return lines
 
 
+def _node_connection_lines(graph: CircuitGraph, nname) -> List[str]:
+    """The same wiring read the other way round, node by node.
+
+    "Connections by component" answers "what is R1 wired to?".  This
+    answers "what meets at node 2?", which is how a circuit is followed
+    while working through it and how nodal analysis is set up -- and it
+    is the only place a listener is told which parts share a junction
+    without having to hold every component's line in mind at once.
+
+    Nets reaching a single pin are left out: nothing meets there, so they
+    are not nodes, and the component listing above already records them.
+    """
+    order = {comp.ref: index for index, comp
+             in enumerate(graph.sorted_components())}
+
+    def member_key(member: Tuple[str, str]):
+        """Read a node's pins in the order the description uses."""
+        ref, number = member
+        return (order.get(ref, len(order)), _pin_key(number))
+
+    lines: List[str] = []
+    for net in graph.nets:
+        if not _is_node(net):
+            continue
+        members = []
+        for ref, number in sorted(net.pins, key=member_key):
+            comp = graph.components.get(ref)
+            pin = comp.pins.get(number) if comp is not None else None
+            if comp is not None and pin is not None:
+                members.append(_pin_phrase(comp, pin))
+        if not members:
+            continue
+        name = _cap(nname(net.net_id))
+        if len(members) == 1:
+            # A ground net counts as a node on the strength of its ground
+            # symbol alone, so it can reach just one pin.
+            lines.append(f"{name} is connected to {members[0]}.")
+        else:
+            lines.append(f"{name} joins {_join_oxford(members)}.")
+    if lines:
+        lines.insert(0, "Connections by node:")
+    return lines
+
+
 _DETAILED_STRUCTURE_KINDS = (
     "voltage_divider", "rc_low_pass", "rc_high_pass",
     "rl_low_pass", "rl_high_pass", "wheatstone",
@@ -482,6 +550,8 @@ def _detailed_lines(graph: CircuitGraph,
                 parts.append(f"{tag} to {nname(pin.net_id)}")
             listing = "; ".join(parts) if parts else "no pins"
             lines.append(f"{comp.ref}: {listing}.")
+
+        lines.extend(_node_connection_lines(graph, nname))
 
     # A polarity dot is information a sighted reader gets for free from the
     # drawing, so it has to be stated for a screen-reader user.
@@ -556,7 +626,12 @@ def generate(graph: CircuitGraph, detail: str = "standard",
     """Return a structured natural-language description of *graph*.
 
     *detail* is one of ``short``, ``standard``, ``detailed`` (anything
-    else falls back to ``standard``).  Output is deterministic for identical inputs; sentences are separated
+    else falls back to ``standard``).  ``detailed`` ends with the wiring
+    listed twice over, once per component and once per node: the same
+    connections read from either side, because "what is R1 wired to?"
+    and "what meets at node 2?" are different questions.
+
+    Output is deterministic for identical inputs; sentences are separated
     by newlines and carry no trailing whitespace.
     """
     level = (detail or "standard").strip().lower()
