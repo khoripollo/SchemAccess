@@ -589,24 +589,35 @@ def _detailed_lines(graph: CircuitGraph,
 # Public entry point
 # ---------------------------------------------------------------------------
 
-def _loop_lines(graph: CircuitGraph, level: str) -> List[str]:
-    found = find_meshes(graph)
-    if not found.ok:
-        return [f"Loop currents are not shown: {found.reason}."]
-    names = [mesh.name for mesh in found.meshes]
+#: Enough to name the circuits a teaching sheet is likely to carry.
+_ORDINALS = ("first", "second", "third", "fourth", "fifth", "sixth",
+             "seventh", "eighth", "ninth", "tenth")
+
+
+def _ordinal(index: int) -> str:
+    return _ORDINALS[index] if index < len(_ORDINALS) else f"{index + 1}th"
+
+
+def _mesh_lines(meshes, shared, level: str, where: str = "") -> List[str]:
+    """The sentences for one circuit's loop currents.
+
+    *where* names the circuit when the sheet holds more than one, since
+    the numbering starts again at I1 in each and a bare "I1 flows
+    clockwise" would then be two different currents.
+    """
+    names = [mesh.name for mesh in meshes]
     if len(names) == 1:
-        lines = [f"The drawing marks one loop current for mesh analysis, "
-                 f"{names[0]}, drawn the way its current flows."]
+        lines = [f"{where}one loop current for mesh analysis, {names[0]}, "
+                 f"drawn the way its current flows."]
     else:
-        lines = [f"The drawing marks {len(names)} loop currents for mesh "
-                 f"analysis, {_join(names)}, each drawn the way its current "
-                 f"flows."]
+        lines = [f"{where}{len(names)} loop currents for mesh analysis, "
+                 f"{_join(names)}, each drawn the way its current flows."]
     if level == "short":
         return lines
-    for mesh in found.meshes:
+    for mesh in meshes:
         lines.append(f"{mesh.name} flows {mesh.sense} through "
                      f"{_join(mesh.refs)}.")
-    for ref, first, second in found.shared():
+    for ref, first, second in shared:
         if same_way(first, second):
             lines.append(f"{ref} is shared by {first.name} and "
                          f"{second.name}, which pass through it the same "
@@ -618,6 +629,37 @@ def _loop_lines(graph: CircuitGraph, level: str) -> List[str]:
                          f"ways, so its current is {first.name} minus "
                          f"{second.name}, taken in the direction of "
                          f"{first.name}.")
+    return lines
+
+
+def _loop_lines(graph: CircuitGraph, level: str) -> List[str]:
+    found = find_meshes(graph)
+    if not found.ok:
+        lines = [f"Loop currents are not shown: {found.reason}."]
+        lines.extend(f"Loop currents are also not shown for {note}."
+                     for note in found.skipped)
+        return lines
+
+    groups = found.by_circuit()
+    shared = found.shared()
+    if len(groups) == 1:
+        lines = _mesh_lines(groups[0], shared, level,
+                            "The drawing marks ")
+    else:
+        # Each circuit numbers its own loops from I1, so every sentence
+        # has to say which circuit it is about.
+        lines = [f"The drawing marks loop currents on {len(groups)} "
+                 f"separate circuits."]
+        for index, group in enumerate(groups):
+            refs = sorted({r for mesh in group for r in mesh.refs},
+                          key=lambda r: (len(r), r))
+            within = [item for item in shared if item[1] in group]
+            lines.extend(_mesh_lines(
+                group, within, level,
+                f"The {_ordinal(index)} circuit, built from "
+                f"{_join(refs)}, has "))
+    lines.extend(f"Loop currents are not shown for {note}."
+                 for note in found.skipped)
     return lines
 
 

@@ -1720,8 +1720,9 @@ def _emit_loops(graph: CircuitGraph, tr: _Transform) -> List[str]:
             f"\\draw[{_LOOP_COLOUR}, thick, -{{Latex[length=2.2mm, bend]}}] "
             f"{_xy(sx, sy)} arc[start angle={start}, "
             f"end angle={end}, radius={_fmt(radius)}];")
+        # Capital I, the way a mesh current is written on a blackboard.
         lines.append(f"\\node[{_LOOP_COLOUR}] at {_xy(cx, cy)} "
-                     f"{{$i_{{{mesh.index}}}$}};")
+                     f"{{$I_{{{mesh.index}}}$}};")
     return lines
 
 
@@ -1780,6 +1781,13 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
         lines.append("% Junctions")
         lines.extend(junction_lines)
 
+    # Before the parts and their labels, so that anything the arrow
+    # crosses is painted over it and stays legible.
+    loop_lines = _emit_loops(graph, tr) if loops else []
+    if loop_lines:
+        lines.append("% Loop currents, each taken the way its current flows")
+        lines.extend(loop_lines)
+
     if two_terminal:
         lines.append("% Two-terminal components")
         for comp in two_terminal:
@@ -1815,11 +1823,6 @@ def generate_body(graph: CircuitGraph, *, junction_dots: bool = True,
     if text_lines:
         lines.append("% Sheet text")
         lines.extend(text_lines)
-
-    loop_lines = _emit_loops(graph, tr) if loops else []
-    if loop_lines:
-        lines.append("% Loop currents, each taken clockwise")
-        lines.extend(loop_lines)
 
     lines.append("\\end{circuitikz}")
 

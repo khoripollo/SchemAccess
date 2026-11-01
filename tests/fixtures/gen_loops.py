@@ -193,25 +193,31 @@ class _Sheet:
         return "\n".join(head + self.items + tail)
 
 
-def ladder(sheet: _Sheet, windows: int, bottom: str = "wire") -> None:
-    plus, minus = sheet.source("V1", "10V", X0, Y_MID)
-    sheet.wire(plus, (X0, Y_TOP))
-    columns = [X0 + k * PITCH for k in range(windows + 1)]
+def ladder(sheet: _Sheet, windows: int, bottom: str = "wire",
+           origin: int = X0, source: str = "V1", first: int = 1) -> None:
+    """A ladder of *windows* loops.
+
+    *origin*, *source* and *first* let a second ladder be drawn further
+    along the same sheet without reusing a reference.
+    """
+    plus, minus = sheet.source(source, "10V", origin, Y_MID)
+    sheet.wire(plus, (origin, Y_TOP))
+    columns = [origin + k * PITCH for k in range(windows + 1)]
     bottoms = [minus]
     for k in range(1, windows + 1):
         left, right = columns[k - 1], columns[k]
-        a, b = sheet.resistor(f"R{2 * k - 1}", VALUES[2 * k - 2],
+        a, b = sheet.resistor(f"R{first + 2 * k - 2}", VALUES[2 * k - 2],
                               left + PITCH // 2, Y_TOP, lying=True)
         sheet.wire((left, Y_TOP), a)
         sheet.wire(b, (right, Y_TOP))
-        top, low = sheet.resistor(f"R{2 * k}", VALUES[2 * k - 1],
+        top, low = sheet.resistor(f"R{first + 2 * k - 1}", VALUES[2 * k - 1],
                                   right, Y_MID)
         sheet.wire((right, Y_TOP), top)
         bottoms.append(low)
         if k < windows:
             sheet.junction((right, Y_TOP))
     if bottom == "wire":
-        sheet.wire(minus, (X0, Y_BOT))
+        sheet.wire(minus, (origin, Y_BOT))
         for k in range(1, windows + 1):
             sheet.wire(bottoms[k], (columns[k], Y_BOT))
             sheet.wire((columns[k - 1], Y_BOT), (columns[k], Y_BOT))
@@ -222,6 +228,16 @@ def ladder(sheet: _Sheet, windows: int, bottom: str = "wire") -> None:
             y = Y_BOT + (1270 if k == windows else 0)
             sheet.wire(low, (columns[k], y))
             sheet.ground(f"#PWR0{k + 1}", columns[k], y)
+
+
+def two_circuits(sheet: _Sheet) -> None:
+    """Two ladders on one sheet that share no wire and no node.
+
+    Five loops between them, which is past the limit for one circuit but
+    well inside it for each: the sheet is two problems, not one.
+    """
+    ladder(sheet, 3)
+    ladder(sheet, 2, origin=X0 + 5 * PITCH, source="V2", first=7)
 
 
 def grid(sheet: _Sheet) -> None:
@@ -301,6 +317,8 @@ def build() -> List[Tuple[str, str]]:
          lambda s: network(s, [("I", "I1", "2mA"), ("R", "R2", "1k"),
                                ("R", "R4", "2k2")],
                            [("R", "R1", "470"), ("R", "R3", "1k")])),
+        ("loops_two_circuits", "Two separate circuits, three loops and two",
+         two_circuits),
         ("loops_undecidable", "Opposing sources and a diode",
          lambda s: network(s, [("V", "V1", "10V"), ("R", "R2", "1k"),
                                ("R", "R4", "1k"), ("V", "V2", "10V")],

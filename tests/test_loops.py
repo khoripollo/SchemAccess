@@ -34,32 +34,32 @@ def test_loop1_two_loop_network(load) -> None:
     found = _meshes(load, "loops_two.kicad_sch")
     assert found.ok, found.reason
     assert _summary(found) == [
-        ("i1", "clockwise", ["V1", "R1", "R2"]),
-        ("i2", "clockwise", ["R2", "R3", "R4"])]
+        ("I1", "clockwise", ["V1", "R1", "R2"]),
+        ("I2", "clockwise", ["R2", "R3", "R4"])]
     assert [(ref, a.name, b.name) for ref, a, b in found.shared()] == [
-        ("R2", "i1", "i2")]
+        ("R2", "I1", "I2")]
     assert not loops.same_way(*found.meshes)
 
 
 def test_loop1_second_source_turns_its_loop_the_other_way(load) -> None:
     found = _meshes(load, "loops_two_sources.kicad_sch")
     assert _summary(found) == [
-        ("i1", "clockwise", ["V1", "R1", "R2"]),
-        ("i2", "counterclockwise", ["R2", "V2", "R3"])]
+        ("I1", "clockwise", ["V1", "R1", "R2"]),
+        ("I2", "counterclockwise", ["R2", "V2", "R3"])]
     assert loops.same_way(*found.meshes)
 
 
 def test_loop1_source_in_the_shared_branch(load) -> None:
     found = _meshes(load, "loops_middle_source.kicad_sch")
     assert _summary(found) == [
-        ("i1", "counterclockwise", ["R1", "V1", "R2"]),
-        ("i2", "clockwise", ["V1", "R3", "R4"])]
+        ("I1", "counterclockwise", ["R1", "V1", "R2"]),
+        ("I2", "clockwise", ["V1", "R3", "R4"])]
 
 
 def test_loop1_current_source_sets_the_direction(load) -> None:
     found = _meshes(load, "loops_current_source.kicad_sch")
     assert [(m.name, m.sense) for m in found.meshes] == [
-        ("i1", "counterclockwise"), ("i2", "counterclockwise")]
+        ("I1", "counterclockwise"), ("I2", "counterclockwise")]
 
 
 def test_loop1_ladder_numbers_left_to_right(load) -> None:
@@ -73,10 +73,10 @@ def test_loop1_ladder_numbers_left_to_right(load) -> None:
 def test_loop1_grid_numbers_row_by_row(load) -> None:
     found = _meshes(load, "loops_grid.kicad_sch")
     assert _summary(found) == [
-        ("i1", "clockwise", ["V1", "R5", "R2", "R7"]),
-        ("i2", "clockwise", ["R2", "R6", "R4", "R8"]),
-        ("i3", "clockwise", ["R1", "R7", "R3"]),
-        ("i4", "clockwise", ["R3", "R8", "R9"])]
+        ("I1", "clockwise", ["V1", "R5", "R2", "R7"]),
+        ("I2", "clockwise", ["R2", "R6", "R4", "R8"]),
+        ("I3", "clockwise", ["R1", "R7", "R3"]),
+        ("I4", "clockwise", ["R3", "R8", "R9"])]
     top, bottom = found.meshes[:2], found.meshes[2:]
     assert max(m.centre[1] for m in top) < min(m.centre[1] for m in bottom)
     assert {r for r, _a, _b in found.shared()} == {"R2", "R3", "R7", "R8"}
@@ -94,6 +94,111 @@ def test_loop1_existing_circuits(name: str, expected, load) -> None:
     assert found.ok, found.reason
     assert [m.refs for m in found.meshes] == expected
     assert all(m.clockwise for m in found.meshes)
+
+
+# ---------------------------------------------------------------------------
+# One sheet, several circuits
+# ---------------------------------------------------------------------------
+#
+# A teaching sheet carries several circuits side by side.  Each is its own
+# problem: the loop limit applies to it alone, its numbering starts again
+# at I1, and one circuit nobody can mesh does not silence the others.
+
+def test_each_circuit_is_held_to_the_limit_on_its_own(load) -> None:
+    """Five loops over two circuits, which one circuit could not have.
+
+    Counted over the sheet this is past MAX_LOOPS and used to be refused
+    outright; counted per circuit it is three loops and two.
+    """
+    found = _meshes(load, "loops_two_circuits.kicad_sch")
+    assert found.ok, found.reason
+    assert len(found.meshes) == 5 > loops.MAX_LOOPS - 1
+
+    assert [(m.circuit, m.name) for m in found.meshes] == [
+        (1, "I1"), (1, "I2"), (1, "I3"), (2, "I1"), (2, "I2")]
+    first, second = found.by_circuit()
+    assert [m.refs for m in first] == [["V1", "R1", "R2"],
+                                       ["R2", "R3", "R4"],
+                                       ["R4", "R5", "R6"]]
+    assert [m.refs for m in second] == [["V2", "R7", "R8"],
+                                        ["R8", "R9", "R10"]]
+    # The left circuit is read first.
+    assert max(m.centre[0] for m in first) < min(m.centre[0] for m in second)
+
+
+def test_a_shared_ground_does_not_make_two_circuits_one(load) -> None:
+    """Meeting at one node joins nothing a mesh can be traced through.
+
+    rc_divider is a single circuit whose loops share C1's branch, so it
+    must stay one circuit numbered I1, I2 -- the grouping has to split on
+    shared *parts*, not merely on being wired together.
+    """
+    found = _meshes(load, "rc_divider.kicad_sch")
+    assert found.ok, found.reason
+    assert {m.circuit for m in found.meshes} == {1}
+    assert [m.name for m in found.meshes] == ["I1", "I2"]
+
+
+def test_one_unmeshable_circuit_does_not_silence_the_others(load,
+                                                            tmp_path) -> None:
+    """An op amp on the sheet costs its own circuit only.
+
+    opamp_inverting is a single circuit, so it is still refused outright;
+    the point here is that the refusal names that circuit rather than
+    every other one on the page.
+    """
+    found = _meshes(load, "opamp_inverting.kicad_sch")
+    assert not found.ok
+    assert "two-terminal parts" in found.reason
+    assert "U1" in found.reason
+
+
+def test_loop_currents_are_written_with_a_capital_i(load) -> None:
+    """Mesh currents are I1, I2, ... the way they are written by hand."""
+    found = _meshes(load, "loops_two.kicad_sch")
+    assert [m.name for m in found.meshes] == ["I1", "I2"]
+
+    tex = circuitikz.generate(load("loops_two.kicad_sch"), loops=True)
+    assert "{$I_{1}$}" in tex and "{$I_{2}$}" in tex
+    assert "$i_{" not in tex
+
+
+def test_the_arrow_sits_in_the_middle_of_its_window(load) -> None:
+    """The arrow marks the loop, so it belongs at the window's centre.
+
+    Choosing the roomiest spot instead pushed it into whichever corner
+    was emptiest, which read as belonging to the part beside it.
+    """
+    for name in ("loops_two.kicad_sch", "loops_three.kicad_sch",
+                 "loops_grid.kicad_sch", "loops_two_circuits.kicad_sch"):
+        found = _meshes(load, name)
+        assert found.ok, f"{name}: {found.reason}"
+        for mesh in found.meshes:
+            middle = _polygon_centre(mesh.boundary)
+            off = math.hypot(mesh.centre[0] - middle[0],
+                             mesh.centre[1] - middle[1])
+            span = min(max(p[i] for p in mesh.boundary)
+                       - min(p[i] for p in mesh.boundary) for i in (0, 1))
+            assert off <= span / 10, (
+                f"{name} {mesh.name}: {off:.2f} mm off centre in a "
+                f"{span:.1f} mm window")
+
+
+def _polygon_centre(outline: List[Point]) -> Point:
+    """Centre of area of a closed outline."""
+    area = 0.0
+    cx = cy = 0.0
+    for i in range(len(outline)):
+        x1, y1 = outline[i]
+        x2, y2 = outline[(i + 1) % len(outline)]
+        cross = x1 * y2 - x2 * y1
+        area += cross
+        cx += (x1 + x2) * cross
+        cy += (y1 + y2) * cross
+    if abs(area) < 1e-9:
+        return (sum(p[0] for p in outline) / len(outline),
+                sum(p[1] for p in outline) / len(outline))
+    return (cx / (3.0 * area), cy / (3.0 * area))
 
 
 def _independent_loops(graph: CircuitGraph) -> int:
@@ -122,9 +227,13 @@ def test_loop2_loops_found_match_the_circuit(name: str, load) -> None:
     found = loops.find_meshes(graph)
     if found.ok:
         assert len(found.meshes) == _independent_loops(graph)
-        assert len(found.meshes) <= loops.MAX_LOOPS
-        numbers = [m.index for m in found.meshes]
-        assert numbers == list(range(1, len(numbers) + 1))
+        # The limit and the numbering are per circuit, not per sheet.
+        for group in found.by_circuit():
+            assert len(group) <= loops.MAX_LOOPS
+            numbers = [m.index for m in group]
+            assert numbers == list(range(1, len(numbers) + 1))
+        circuits = [m.circuit for m in found.meshes]
+        assert sorted(set(circuits)) == list(range(1, max(circuits) + 1))
     else:
         assert found.reason and not found.meshes
 
@@ -139,7 +248,9 @@ def test_loop2_deterministic(load) -> None:
 
 @pytest.mark.parametrize("name,reason", [
     ("loops_seven.kicad_sch", "7 loops"),
-    ("power_symbols.kicad_sch", "5 loops"),
+    # Twenty resistors joined only through power symbols: the loops are
+    # real but no window on the page traces one.
+    ("power_symbols.kicad_sch", "not the circuit's loops"),
     ("big_200.kicad_sch", "99 loops"),
     ("loops_crossing.kicad_sch", "crosses itself without a junction"),
     ("loops_scattered_ground.kicad_sch", "not in one row"),
@@ -213,6 +324,44 @@ def test_loop4_arrows_sit_clear_inside_their_windows(name: str, load) -> None:
             assert gap >= first.radius + second.radius
 
 
+@pytest.mark.parametrize("name", _DRAWN)
+def test_loop4_one_arrow_size_per_circuit(name: str, load) -> None:
+    """Every arrow in a circuit is drawn the same size.
+
+    A person marking up a sheet uses one circle throughout; arrows that
+    differ in size read as though the difference meant something.
+    """
+    found = loops.find_meshes(load(name))
+    assert found.ok, found.reason
+    for group in found.by_circuit():
+        assert len({m.radius for m in group}) == 1, \
+            f"{name}: {[ (m.name, m.radius) for m in group ]}"
+
+
+def test_loop4_a_long_value_does_not_shrink_the_arrow(load) -> None:
+    """Label text no longer decides how big a loop arrow is.
+
+    Sizing used to count every reference and value as an obstacle, so a
+    window with a long value beside it got an arrow half the size of its
+    neighbour's -- the same loop, drawn smaller because of a label.  The
+    arrows now follow the wiring and are drawn beneath the text, so
+    making every label far longer must change nothing.
+    """
+    name = "earth_blank_value.kicad_sch"
+    before = loops.find_meshes(load(name))
+    assert before.ok, before.reason
+    # Not already pinned at the cap, or this would prove nothing.
+    assert all(m.radius < loops._MAX_RADIUS for m in before.meshes)
+
+    graph = load(name)
+    for comp in graph.components.values():
+        comp.value = "123.456 kiloohms, give or take"
+    after = loops.find_meshes(graph)
+
+    assert [(m.name, m.centre, m.radius) for m in after.meshes] == \
+        [(m.name, m.centre, m.radius) for m in before.meshes]
+
+
 @pytest.mark.parametrize("name", VALID_FIXTURES)
 def test_loop5_outputs_unchanged_without_the_option(name: str, load) -> None:
     graph = load(name)
@@ -229,7 +378,7 @@ def test_loop5_outputs_unchanged_without_the_option(name: str, load) -> None:
 def test_loop5_latex_draws_one_arrow_per_loop(load) -> None:
     tex = circuitikz.generate(load("loops_grid.kicad_sch"), loops=True)
     assert tex.count("arc[start angle=120, end angle=-150") == 4
-    labels = re.findall(r"\{\$i_\{(\d+)\}\$\}", tex)
+    labels = re.findall(r"\{\$I_\{(\d+)\}\$\}", tex)
     assert labels == ["1", "2", "3", "4"]
     stripped = tex.replace(r"\{", "").replace(r"\}", "")
     assert stripped.count("{") == stripped.count("}")
@@ -259,7 +408,7 @@ def test_loop5_previews_draw_the_loops(load) -> None:
                       r'[^>]*\bclass="sa-loop"[^>]*/>', svg)
     assert arcs == ["1", "0"]
     assert svg.count('class="sa-loop sa-filled"') == 2
-    assert ">i1<" in svg and ">i2<" in svg
+    assert ">I1<" in svg and ">I2<" in svg
     assert pdfwriter.generate(graph, loops=True) != pdfwriter.generate(graph)
 
 
@@ -267,19 +416,19 @@ def test_loop5_description(load) -> None:
     graph = load("loops_two.kicad_sch")
     lines = alttext.generate(graph, "standard", loops=True).splitlines()
     assert lines[-4:] == [
-        "The drawing marks 2 loop currents for mesh analysis, i1 and i2, "
+        "The drawing marks 2 loop currents for mesh analysis, I1 and I2, "
         "each drawn the way its current flows.",
-        "i1 flows clockwise through V1, R1 and R2.",
-        "i2 flows clockwise through R2, R3 and R4.",
-        "R2 is shared by i1 and i2, which pass through it opposite ways, so "
-        "its current is i1 minus i2, taken in the direction of i1."]
+        "I1 flows clockwise through V1, R1 and R2.",
+        "I2 flows clockwise through R2, R3 and R4.",
+        "R2 is shared by I1 and I2, which pass through it opposite ways, so "
+        "its current is I1 minus I2, taken in the direction of I1."]
     two = alttext.generate(load("loops_two_sources.kicad_sch"), "standard",
                            loops=True).splitlines()
     assert two[-3:] == [
-        "i1 flows clockwise through V1, R1 and R2.",
-        "i2 flows counterclockwise through R2, V2 and R3.",
-        "R2 is shared by i1 and i2, which pass through it the same way, so "
-        "its current is i1 plus i2."]
+        "I1 flows clockwise through V1, R1 and R2.",
+        "I2 flows counterclockwise through R2, V2 and R3.",
+        "R2 is shared by I1 and I2, which pass through it the same way, so "
+        "its current is I1 plus I2."]
     short = alttext.generate(graph, "short", loops=True).splitlines()
     assert short[-1].startswith("The drawing marks 2 loop currents")
     refused = alttext.generate(load("loops_seven.kicad_sch"), "short",
@@ -307,16 +456,16 @@ def test_loop6_cli_flag(fixtures_dir, capsys) -> None:
                      "--check", "--loops"])
     out = capsys.readouterr().out
     assert code == 0
-    assert "Loop currents: i1 clockwise, i2 counterclockwise." in out
+    assert "Loop currents: I1 clockwise, I2 counterclockwise." in out
 
 
 def test_loop6_pipeline_reports_and_warns(fixtures_dir, tmp_path) -> None:
     shown = run_pipeline(PipelineOptions(
         input_path=str(fixtures_dir / "loops_grid.kicad_sch"),
         output_dir=str(tmp_path), dry_run=True, show_loops=True))
-    assert shown.stats.loops == ["i1 clockwise", "i2 clockwise",
-                                 "i3 clockwise", "i4 clockwise"]
-    assert "i4 flows clockwise through R3, R8 and R9." in shown.alt_text
+    assert shown.stats.loops == ["I1 clockwise", "I2 clockwise",
+                                 "I3 clockwise", "I4 clockwise"]
+    assert "I4 flows clockwise through R3, R8 and R9." in shown.alt_text
     assert "arc[" in shown.tikz_code
 
     refused = run_pipeline(PipelineOptions(

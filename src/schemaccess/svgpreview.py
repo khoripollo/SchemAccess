@@ -1359,6 +1359,11 @@ def draw(graph: CircuitGraph, canvas, *,
             canvas.circle(squeeze((junction.x, junction.y)), _JUNCTION_R,
                           "sa-dot")
 
+    # Before the parts and their labels, so that anything an arrow
+    # crosses paints over it and stays legible.
+    if loops:
+        _draw_loops(canvas, graph, squeeze)
+
     dangling = {net.net_id for net in graph.nets
                 if len(net.pins) < 2 and net.kind == NetKind.ANONYMOUS}
     for ref in sorted(graph.components, key=_ref_key):
@@ -1379,9 +1384,6 @@ def draw(graph: CircuitGraph, canvas, *,
     for label in doc.labels:
         _draw_net_label(canvas, label.text, (label.x, label.y), label.kind,
                         squeeze)
-
-    if loops:
-        _draw_loops(canvas, graph, squeeze)
 
     points = [squeeze(p) for p in raw_points]
     bounds = Bounds()

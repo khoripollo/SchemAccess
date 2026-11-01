@@ -79,7 +79,7 @@ results on the right. In tab order:
      wires meet, as KiCad does. On by default; uncheck for a cleaner drawing.
      Wiring and alt text are unchanged either way.
    - **Show loop currents** (Alt+L): for teaching mesh analysis, draw each
-     loop current (i1, i2, ...) and describe it in the alt text. Off by
+     loop current (I1, I2, ...) and describe it in the alt text. Off by
      default; see [Loop currents](#loop-currents).
    - **Description detail** (Alt+D): *Short*, *Standard* or *Detailed*
      (the default) alt text. *Detailed* also lists every connection twice,
@@ -134,7 +134,7 @@ schemaccess INPUT.kicad_sch [options]
 | `-f`, `--format {pdf,svg,png,all}` | Image format(s) to render (default: `all`) |
 | `--check` | Report what the schematic converts to **without writing any files**; exits 1 if a component did not convert or was left out of the description |
 | `--no-junction-dots` | Omit the connection dots drawn where wires meet (included by default, as KiCad draws them) |
-| `--loops` | Draw and describe the loop currents i1, i2, ... for teaching mesh analysis (see [Loop currents](#loop-currents)) |
+| `--loops` | Draw and describe the loop currents I1, I2, ... for teaching mesh analysis (see [Loop currents](#loop-currents)) |
 | `--units` | Write units after the values on the drawing (`1` → `1 H`, `22n` → `22 nF`, `100k` → `100 kΩ`) |
 | `--netlist FORMATS` | Also write netlists: a comma-separated list of `spice`, `kicad`, `text`, `csv`, or `all` |
 | `--compare-net FILE` | Check the conversion against a `.net` netlist exported from KiCad (see [Validating against KiCad](#validating-against-kicad)); writes no files, exits 1 on a disagreement |
@@ -189,9 +189,19 @@ the site.
 
 For teaching mesh analysis, `--loops` (the **Show loop currents** option in
 the desktop program and on the web page) marks every window of the circuit
-with its loop current -- i1, i2, ... -- as a circular arrow, the way a
+with its loop current -- I1, I2, ... -- as a circular arrow, the way a
 textbook figure does, and the alt text says which parts each loop runs
-through and what a shared part carries (i1 minus i2, or i1 plus i2).
+through and what a shared part carries (I1 minus I2, or I1 plus I2).
+
+Each arrow is drawn at the centre of its window, where a person would put
+it, and **every arrow in a circuit is the same size** — one circle drawn
+throughout, as on a blackboard. The size follows the wiring: the largest
+that clears the wires and part bodies of every window in that circuit.
+Reference and value text is deliberately not counted, because in a small
+window it is the labels rather than the wiring that decide how much room
+is left, and sizing each arrow around its own nearest label made
+neighbouring loops visibly different. The arrows are drawn *beneath* the
+labels, so where one crosses a value the text still reads over it.
 
 Each loop turns the way its current really flows, so no loop current comes
 out negative. When the circuit can be worked out (resistors and DC sources
@@ -201,12 +211,20 @@ source in it -- current leaves a voltage source's + terminal, and follows a
 current source's arrow. So one source's loop runs one way, and a second
 source in another branch can send its loop the other way.
 
+**Every circuit on the sheet is treated as its own problem.** A page of
+worked examples holds several circuits side by side, so each one gets its
+loops counted, solved and numbered separately, starting again at I1 — and
+a circuit that cannot be meshed costs only itself, not the whole page.
+Two circuits that meet at nothing but a shared ground are two circuits:
+no loop can be traced through a single node.
+
 The loops are kept to circuits they read well on: flat circuits of
-two-terminal parts with two to four loops, drawn with wires (ground symbols
-in one row count as a wire). Anything else -- more than four loops, an op
-amp or transistor, wires crossing without a junction, parts joined by net
-labels, no source, or sources whose directions cannot be told apart -- is
-converted as usual without them, and the report says why.
+two-terminal parts with two to four loops *each*, drawn with wires (ground
+symbols in one row count as a wire). A circuit that is anything else --
+more than four loops, an op amp or transistor, wires crossing without a
+junction, parts joined by net labels, no source, or sources whose
+directions cannot be told apart -- is converted as usual without them, and
+the report says which circuit was left out and why.
 
 ## Netlists
 

@@ -23,10 +23,10 @@ tool they need is missing, so the whole suite passes on a bare machine.
 
 ## Test data
 
-The fixture corpus lives in `tests/fixtures/` — 29 KiCad schematics
-(27 valid ones listed in the manifest, plus `malformed.kicad_sch` and
+The fixture corpus lives in `tests/fixtures/` — 30 KiCad schematics
+(28 valid ones listed in the manifest, plus `malformed.kicad_sch` and
 `not_a_schematic.kicad_sch` for the error paths). Most are hand-built;
-`big_200.kicad_sch` is produced by `gen_big.py` and the ten `loops_*`
+`big_200.kicad_sch` is produced by `gen_big.py` and the eleven `loops_*`
 circuits by `gen_loops.py`, a few are real KiCad 10 files kept as
 regressions, `earth_blank_value.kicad_sch` is a user's file kept verbatim,
 and `power_symbols.kicad_sch` carries every ground in KiCad 10's power

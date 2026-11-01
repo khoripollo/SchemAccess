@@ -1,4 +1,4 @@
-﻿"""Main window for the SchemAccess desktop GUI.
+"""Main window for the SchemAccess desktop GUI.
 
 Accessibility is the product: every interactive widget carries an
 accessible name and description, labels are buddy-paired with their
@@ -497,7 +497,7 @@ class MainWindow(QMainWindow):
             "the alt text are unchanged either way.")
         self.junction_check.toggled.connect(self._on_option_toggled)
 
-        self.loops_check = QCheckBox("Show &loop currents (i1, i2, ...)",
+        self.loops_check = QCheckBox("Show &loop currents (I1, I2, ...)",
                                      options_group)
         self.loops_check.setChecked(False)
         self.loops_check.setAccessibleName("Show loop currents")

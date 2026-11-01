@@ -18,11 +18,9 @@ _EPS = 1e-3
 
 _WIRE_CLEARANCE = 0.9
 _BODY_CLEARANCE = 1.8
-_LABEL_OFFSET = 1.3
-_CHAR_WIDTH = 0.95
-_TEXT_HEIGHT = 1.8
-_TEXT_MARGIN = 0.5
-_MIN_RADIUS = 1.5
+#: A window too tight for even this still gets a circle rather than a
+#: dot; the arrow is drawn under the labels, so it may cross one.
+_MIN_RADIUS = 2.0
 _MAX_RADIUS = 5.0
 _FILL = 0.85
 
@@ -35,10 +33,13 @@ class Mesh:
     radius: float
     boundary: List[Point] = field(default_factory=list)
     clockwise: bool = True
+    #: Which circuit on the sheet this loop belongs to, counting from 1
+    #: in reading order.  The numbering starts again at I1 in each.
+    circuit: int = 1
 
     @property
     def name(self) -> str:
-        return f"i{self.index}"
+        return f"I{self.index}"
 
     @property
     def sense(self) -> str:
@@ -49,10 +50,22 @@ class Mesh:
 class MeshResult:
     meshes: List[Mesh] = field(default_factory=list)
     reason: str = ""
+    #: Circuits left out, each saying why.  One circuit being out of
+    #: reach does not stop the rest of the sheet being drawn, so these
+    #: are reported alongside the loops rather than instead of them.
+    skipped: List[str] = field(default_factory=list)
 
     @property
     def ok(self) -> bool:
         return bool(self.meshes) and not self.reason
+
+    def by_circuit(self) -> List[List[Mesh]]:
+        """The meshes grouped by circuit, in reading order."""
+        groups: Dict[int, List[Mesh]] = {}
+        for mesh in self.meshes:
+            groups.setdefault(mesh.circuit, []).append(mesh)
+        return [sorted(groups[key], key=lambda m: m.index)
+                for key in sorted(groups)]
 
     def shared(self) -> List[Tuple[str, Mesh, Mesh]]:
         owners: Dict[str, List[Mesh]] = {}
@@ -178,43 +191,85 @@ class _Edge:
 _Obstacle = Tuple[Point, Point, float]
 
 
-def _visible_length(latex: str) -> int:
-    text = re.sub(r"\\[A-Za-z]+", "x", latex)
-    return len(re.sub(r"[{}$\\]", "", text))
-
-
-def _part_obstacles(comp: Component) -> List[_Obstacle]:
-    from . import circuitikz
-
-    first, second = circuitikz._bipole_pin_order(comp)
-    a, b = first.position, second.position
-    dx, dy = b[0] - a[0], b[1] - a[1]
-    length = math.hypot(dx, dy) or 1.0
-    left = (dy / length, -dx / length)
-    middle = ((a[0] + b[0]) / 2, (a[1] + b[1]) / 2)
-    upright = abs(dx) < abs(dy)
-
-    texts = [(left, len(comp.ref) if comp.shows("Reference") else 0),
-             ((-left[0], -left[1]),
-              _visible_length(circuitikz._format_value(comp)))]
-    found: List[_Obstacle] = [(a, b, _BODY_CLEARANCE)]
-    keep = _TEXT_HEIGHT / 2 + _TEXT_MARGIN
-    for (nx, ny), chars in texts:
-        if not chars:
-            continue
-        width = chars * _CHAR_WIDTH
-        if upright:
-            start = (middle[0] + nx * _LABEL_OFFSET, middle[1])
-            end = (middle[0] + nx * (_LABEL_OFFSET + width), middle[1])
-        else:
-            y = middle[1] + ny * (_LABEL_OFFSET + _TEXT_HEIGHT / 2)
-            start, end = (middle[0] - width / 2, y), (middle[0] + width / 2, y)
-        found.append((start, end, keep))
-    return found
-
-
 def _where(p: Point) -> str:
     return f"near ({p[0]:.1f}, {p[1]:.1f}) mm"
+
+
+#: A net-connected circuit is looked at no further once its loop count
+#: passes this, which keeps a 200-part ladder from being taken apart face
+#: by face only to be refused.  It is deliberately well above MAX_LOOPS,
+#: because a circuit joined only through ground splits into smaller ones
+#: later and each of those may be well within the limit.
+_LOOP_CEILING = MAX_LOOPS * 4
+
+
+def _corner(spots: Sequence[Point]) -> Tuple[float, float]:
+    """Top-left-most point, as a reading-order sort key."""
+    return (min(p[1] for p in spots), min(p[0] for p in spots))
+
+
+def _circuits(graph: CircuitGraph) -> List[List[Component]]:
+    """The separately wired circuits on the sheet, top-left one first.
+
+    A sheet of worked examples carries several circuits side by side,
+    and what one of them contains says nothing about whether the others
+    can be drawn.  Grouping them here is what keeps one three-pin switch
+    in the corner from costing every other circuit its loop currents.
+    """
+    union = _Union()
+    for comp in graph.sorted_components():
+        nets = sorted({p.net_id for p in comp.pins.values() if p.net_id >= 0})
+        for net in nets[1:]:
+            union.union(nets[0], net)
+
+    groups: Dict[object, List[Component]] = {}
+    for comp in graph.sorted_components():
+        nets = sorted({p.net_id for p in comp.pins.values() if p.net_id >= 0})
+        if nets:
+            groups.setdefault(union.find(nets[0]), []).append(comp)
+
+    return sorted(groups.values(), key=lambda members: _corner(
+        [pin.position for c in members for pin in c.pins.values()]))
+
+
+def _circuit_refs(refs: Sequence[str], limit: int = 3) -> str:
+    """Name a circuit by a few of its parts: 'V1, R1 and R2'."""
+    ordered = sorted(set(refs), key=lambda r: (len(r), r))
+    if len(ordered) > limit:
+        return (", ".join(ordered[:limit])
+                + f" and {len(ordered) - limit} more")
+    return _join_refs(ordered)
+
+
+def _group_windows(windows: Sequence[Tuple[List["_Edge"], List[str]]],
+                   outlines: Sequence[List[Point]]) -> List[List[int]]:
+    """Window indices grouped into circuits, top-left circuit first.
+
+    Two windows belong to the same circuit when they share a part,
+    directly or through others.  Windows sharing nothing appear in none
+    of one another's mesh equations, so they are separate problems: each
+    is numbered from I1, each is held against the loop limit on its own,
+    and one that cannot be worked out does not silence the rest.  Note
+    that sharing a single node does not join two circuits -- no mesh can
+    be traced through one node alone -- so two halves of a sheet that
+    meet only at a common ground stay two circuits, which is how a
+    person reading the page sees them.
+    """
+    union = _Union()
+    owner: Dict[str, int] = {}
+    for index, (_face, refs) in enumerate(windows):
+        union.find(index)               # a lone window is still a circuit
+        for ref in refs:
+            if ref in owner:
+                union.union(owner[ref], index)
+            else:
+                owner[ref] = index
+
+    groups: Dict[object, List[int]] = {}
+    for index in range(len(windows)):
+        groups.setdefault(union.find(index), []).append(index)
+    return sorted(groups.values(), key=lambda members: _corner(
+        [p for i in members for p in outlines[i]]))
 
 
 def find_meshes(graph: CircuitGraph) -> MeshResult:
@@ -224,28 +279,53 @@ def find_meshes(graph: CircuitGraph) -> MeshResult:
     if doc.sheets:
         return MeshResult(reason="the design is spread over several sheets")
 
+    # Each separately wired circuit is judged on its own, so a part that
+    # cannot be meshed only costs the circuit it sits in.
+    circuits = _circuits(graph)
+    many = len(circuits) > 1
     parts: List[Component] = []
-    for comp in graph.sorted_components():
-        if len(comp.pins) > 2:
-            return MeshResult(reason=(
-                f"{comp.ref} ({comp.ctype.value}) has {len(comp.pins)} "
-                f"pins, and loops are only drawn for circuits built from "
-                f"two-terminal parts"))
-        if len(comp.pins) == 2:
-            parts.append(comp)
+    skipped: List[str] = []
+    for members in circuits:
+        multi = [c for c in members if len(c.pins) > 2]
+        two = [c for c in members if len(c.pins) == 2]
+        where = (f"the circuit with "
+                 f"{_circuit_refs([c.ref for c in members])}: "
+                 if many else "")
+        if multi:
+            comp = multi[0]
+            skipped.append(
+                f"{where}{comp.ref} ({comp.ctype.value}) has "
+                f"{len(comp.pins)} pins, and loops are only drawn for "
+                f"circuits built from two-terminal parts")
+            continue
+        count = _loop_count([tuple(pin.net_id for pin in _pins(comp))
+                             for comp in two])
+        if count > _LOOP_CEILING:
+            subject = f"{where}it has" if where else "the circuit has"
+            skipped.append(
+                f"{subject} {count} loops, and they are drawn for up to "
+                f"{MAX_LOOPS} so the picture stays readable")
+            continue
+        # A circuit with no loop of its own is not a complaint: it is a
+        # stray part or a chain, and the sheet may well have others.
+        parts.extend(two)
+
+    if not parts:
+        if skipped:
+            # Nothing is drawable, so the first reason becomes the answer.
+            return MeshResult(reason=skipped[0], skipped=skipped[1:])
+        return MeshResult(reason="the circuit has no closed loop")
 
     expected = _loop_count([
         tuple(pin.net_id for pin in _pins(comp)) for comp in parts])
     if expected == 0:
+        if skipped:
+            return MeshResult(reason=skipped[0], skipped=skipped[1:])
         return MeshResult(reason="the circuit has no closed loop")
-    if expected > MAX_LOOPS:
-        return MeshResult(reason=(
-            f"the circuit has {expected} loops, and they are drawn for up "
-            f"to {MAX_LOOPS} so the picture stays readable"))
 
     edges, problem = _plane(graph, parts)
     if problem:
-        return MeshResult(reason=problem)
+        return MeshResult(reason=problem, skipped=skipped)
 
     drawn = _Union()
     for edge in edges:
@@ -254,7 +334,8 @@ def find_meshes(graph: CircuitGraph) -> MeshResult:
     seen = _loop_count([(drawn.find(e.a), drawn.find(e.b))
                         for e in edges if e.kind == "part"])
     if seen != expected:
-        return MeshResult(reason=_mismatch_reason(graph, doc))
+        return MeshResult(reason=_mismatch_reason(graph, doc),
+                          skipped=skipped)
 
     faces = _faces(_prune(edges))
     windows = []
@@ -265,29 +346,58 @@ def find_meshes(graph: CircuitGraph) -> MeshResult:
             windows.append((face, refs))
     if len(windows) != expected:
         return MeshResult(reason=(
-            "the windows on the drawing do not match the circuit's loops"))
-
-    senses, problem = _senses(graph, windows)
-    if problem:
-        return MeshResult(reason=problem)
+            "the windows on the drawing do not match the circuit's loops"),
+            skipped=skipped)
 
     outlines = [[e.a for e in face] for face, _refs in windows]
     obstacles = _obstacles(graph, parts, edges)
-    meshes = []
-    for i, (face, refs) in enumerate(windows):
-        others = outlines[:i] + outlines[i + 1:]
-        centre, room = _place(outlines[i], others, obstacles)
-        radius = max(_MIN_RADIUS, min(_MAX_RADIUS, _FILL * room))
-        clockwise = senses[i] > 0
-        meshes.append(Mesh(index=0, refs=_around(face, refs, graph,
-                                                 clockwise),
-                           centre=centre, radius=radius,
-                           boundary=outlines[i], clockwise=clockwise))
+    groups = _group_windows(windows, outlines)
 
-    for number, mesh in enumerate(_reading_order(meshes), start=1):
-        mesh.index = number
-    meshes.sort(key=lambda m: m.index)
-    return MeshResult(meshes=meshes)
+    meshes: List[Mesh] = []
+    number = 0
+    for members in groups:
+        refs = [r for i in members for r in windows[i][1]]
+        # Only name the circuit when there is more than one to confuse it
+        # with; on an ordinary single-circuit sheet it is just noise.
+        where = (f"the circuit with {_circuit_refs(refs)}: "
+                 if many or len(groups) > 1 else "")
+        if len(members) > MAX_LOOPS:
+            subject = f"{where}it has" if where else "the circuit has"
+            skipped.append(
+                f"{subject} {len(members)} loops, and they are drawn for "
+                f"up to {MAX_LOOPS} so the picture stays readable")
+            continue
+        senses, problem = _senses(graph, [windows[i] for i in members])
+        if problem:
+            skipped.append(f"{where}{problem}")
+            continue
+
+        number += 1
+        placed = [_place(outlines[i], outlines[:i] + outlines[i + 1:],
+                         obstacles) for i in members]
+        # One size for the whole circuit.  A person drawing these by hand
+        # uses the same circle in every window, and arrows that differ in
+        # size read as though the difference meant something.
+        radius = max(_MIN_RADIUS,
+                     min(_MAX_RADIUS, _FILL * min(r for _c, r in placed)))
+        group: List[Mesh] = []
+        for position, i in enumerate(members):
+            face, face_refs = windows[i]
+            clockwise = senses[position] > 0
+            group.append(Mesh(
+                index=0, refs=_around(face, face_refs, graph, clockwise),
+                centre=placed[position][0], radius=radius,
+                boundary=outlines[i], clockwise=clockwise, circuit=number))
+        for index, mesh in enumerate(_reading_order(group), start=1):
+            mesh.index = index
+        meshes.extend(group)
+
+    meshes.sort(key=lambda m: (m.circuit, m.index))
+    if not meshes:
+        return MeshResult(reason=skipped[0] if skipped
+                          else "the circuit has no closed loop",
+                          skipped=skipped[1:])
+    return MeshResult(meshes=meshes, skipped=skipped)
 
 
 def _pins(comp: Component):
@@ -440,15 +550,22 @@ def _oriented(edge: _Edge, step: Tuple[Point, Point]) -> _Edge:
 
 def _obstacles(graph: CircuitGraph, parts: List[Component],
                edges: List[_Edge]) -> List[_Obstacle]:
+    """What a loop arrow has to keep clear of: wires and part bodies.
+
+    Reference and value text is deliberately not in here.  In a small
+    window it is the labels, not the wiring, that decide how much room
+    is left, and sizing each arrow around its own nearest label gave
+    neighbouring loops visibly different circles -- one squeezed to the
+    minimum beside a long value, the next half as big again -- which
+    reads as if the sizes meant something.  The arrows are drawn beneath
+    the labels instead, so where one does cross a value the text still
+    reads over the top of it.
+    """
     found: List[_Obstacle] = [(e.a, e.b, _WIRE_CLEARANCE)
                               for e in edges if e.kind != "part"]
     for comp in parts:
-        found.extend(_part_obstacles(comp))
-    for label in graph.document.labels:
-        width = len(label.text) * _CHAR_WIDTH
-        y = label.y - _TEXT_HEIGHT / 2
-        found.append(((label.x, y), (label.x + width, y),
-                      _TEXT_HEIGHT / 2 + _TEXT_MARGIN))
+        a, b = (pin.position for pin in _pins(comp))
+        found.append((a, b, _BODY_CLEARANCE))
     return found
 
 
@@ -469,31 +586,53 @@ def _centroid(outline: List[Point]) -> Point:
 
 def _place(outline: List[Point], others: List[List[Point]],
            obstacles: List[_Obstacle]) -> Tuple[Point, float]:
+    """Where the loop arrow goes inside its window, and its room there.
+
+    The arrow belongs in the middle of the window.  That is where a
+    person draws it by hand, and it is what makes the arrow read as
+    belonging to the loop rather than to whichever part it has come to
+    rest beside.  So the centre of area is taken whenever an arrow fits
+    there at all, and only when it does not does the search move off it,
+    for the nearest point that does fit.
+
+    Picking the roomiest point instead -- what this did before -- pushes
+    the arrow into whatever corner of the window happens to be emptiest,
+    which is how it ended up tucked against a resistor on one side.
+    """
     xs = [p[0] for p in outline]
     ys = [p[1] for p in outline]
     left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
     centre = _centroid(outline)
     enough = _MAX_RADIUS / _FILL
+    fits = _MIN_RADIUS / _FILL      # room for the smallest arc drawn
 
-    def score(p: Point) -> Tuple[float, float]:
+    def room_at(p: Point) -> float:
         if not _inside(p, outline) or any(_inside(p, o) for o in others):
-            return (-math.inf, 0.0)
-        room = min(_distance(p, a, b) - keep for a, b, keep in obstacles)
-        return (min(room, enough),
-                -math.hypot(p[0] - centre[0], p[1] - centre[1]))
+            return -math.inf
+        return min(_distance(p, a, b) - keep for a, b, keep in obstacles)
 
-    best_point = centre
-    best = score(centre)
-    if best[0] >= enough:
-        return (round(centre[0], 3), round(centre[1], 3)), best[0]
+    def score(p: Point, room: float) -> Tuple[int, float]:
+        # Anywhere the arrow fits, nearest the middle wins; nowhere it
+        # fits, the roomiest spot is the least bad.
+        if room >= fits:
+            return (1, -math.hypot(p[0] - centre[0], p[1] - centre[1]))
+        return (0, room)
+
+    best_room = room_at(centre)
+    if best_room >= fits:
+        return ((round(centre[0], 3), round(centre[1], 3)),
+                min(best_room, enough))
+
+    best_point, best = centre, score(centre, best_room)
     step = max(min(right - left, bottom - top) / 24.0, 0.2)
     y = top + step / 2
     while y < bottom:
         x = left + step / 2
         while x < right:
-            candidate = score((x, y))
+            room = room_at((x, y))
+            candidate = score((x, y), room)
             if candidate > best:
-                best, best_point = candidate, (x, y)
+                best, best_point, best_room = candidate, (x, y), room
             x += step
         y += step
     for _ in range(2):
@@ -502,10 +641,11 @@ def _place(outline: List[Point], others: List[List[Point]],
         for i in range(-4, 5):
             for j in range(-4, 5):
                 p = (cx + i * step, cy + j * step)
-                candidate = score(p)
+                room = room_at(p)
+                candidate = score(p, room)
                 if candidate > best:
-                    best, best_point = candidate, p
-    room = max(best[0], 0.0)
+                    best, best_point, best_room = candidate, p, room
+    room = max(min(best_room, enough), 0.0)
     return (round(best_point[0], 3), round(best_point[1], 3)), room
 
 
