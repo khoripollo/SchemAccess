@@ -101,18 +101,19 @@ def test_loop1_existing_circuits(name: str, expected, load) -> None:
 # ---------------------------------------------------------------------------
 #
 # A teaching sheet carries several circuits side by side.  Each is its own
-# problem: the loop limit applies to it alone, its numbering starts again
-# at I1, and one circuit nobody can mesh does not silence the others.
+# problem: its numbering starts again at I1, and one circuit nobody can
+# mesh does not silence the others.
 
-def test_each_circuit_is_held_to_the_limit_on_its_own(load) -> None:
-    """Five loops over two circuits, which one circuit could not have.
+def test_each_circuit_is_numbered_on_its_own(load) -> None:
+    """Five loops over two circuits: three and two, each numbered from I1.
 
-    Counted over the sheet this is past MAX_LOOPS and used to be refused
-    outright; counted per circuit it is three loops and two.
+    Two circuits that share no part appear in none of one another's mesh
+    equations, so a reader works them separately and the labels have to
+    say so.
     """
     found = _meshes(load, "loops_two_circuits.kicad_sch")
     assert found.ok, found.reason
-    assert len(found.meshes) == 5 > loops.MAX_LOOPS - 1
+    assert len(found.meshes) == 5
 
     assert [(m.circuit, m.name) for m in found.meshes] == [
         (1, "I1"), (1, "I2"), (1, "I3"), (2, "I1"), (2, "I2")]
@@ -227,9 +228,8 @@ def test_loop2_loops_found_match_the_circuit(name: str, load) -> None:
     found = loops.find_meshes(graph)
     if found.ok:
         assert len(found.meshes) == _independent_loops(graph)
-        # The limit and the numbering are per circuit, not per sheet.
+        # The numbering is per circuit, not per sheet.
         for group in found.by_circuit():
-            assert len(group) <= loops.MAX_LOOPS
             numbers = [m.index for m in group]
             assert numbers == list(range(1, len(numbers) + 1))
         circuits = [m.circuit for m in found.meshes]
@@ -247,11 +247,11 @@ def test_loop2_deterministic(load) -> None:
 
 
 @pytest.mark.parametrize("name,reason", [
-    ("loops_seven.kicad_sch", "7 loops"),
     # Twenty resistors joined only through power symbols: the loops are
     # real but no window on the page traces one.
     ("power_symbols.kicad_sch", "not the circuit's loops"),
-    ("big_200.kicad_sch", "99 loops"),
+    # A 100-stage ladder, so nothing to do with size: it has no source.
+    ("big_200.kicad_sch", "no source"),
     ("loops_crossing.kicad_sch", "crosses itself without a junction"),
     ("loops_scattered_ground.kicad_sch", "not in one row"),
     ("opamp_inverting.kicad_sch", "two-terminal parts"),
@@ -273,8 +273,35 @@ def test_loop3_undecidable_names_what_blocks_the_calculation(load) -> None:
                                       "loops_undecidable.kicad_sch").reason
 
 
-def test_loop3_limit_is_four() -> None:
-    assert loops.MAX_LOOPS == 4
+def test_a_circuit_of_many_loops_is_drawn_in_full(load) -> None:
+    """There is no cap on how many loop currents a circuit may have.
+
+    A seven-window ladder used to be refused outright, with the picture's
+    readability as the reason -- but a mesh problem set at that size is
+    exactly when a reader most needs the labels, and the arrows shrink to
+    fit their own windows anyway.
+    """
+    found = _meshes(load, "loops_seven.kicad_sch")
+    assert found.ok, found.reason
+    assert [m.name for m in found.meshes] == [f"I{n}" for n in range(1, 8)]
+    assert all(m.circuit == 1 for m in found.meshes)
+    # One size for the whole circuit, as a person drawing them would use.
+    assert len({m.radius for m in found.meshes}) == 1
+
+
+def test_many_loops_stay_affordable(load) -> None:
+    """Placement weighs every obstacle at every trial point, so it is
+    kept to the obstacles near the window being placed.  Without that,
+    one window on a busy sheet cost a third of a second, and lifting the
+    cap would have turned a long ladder into a hang."""
+    import time
+
+    graph = load("loops_seven.kicad_sch")
+    start = time.perf_counter()
+    found = loops.find_meshes(graph)
+    elapsed = time.perf_counter() - start
+    assert found.ok
+    assert elapsed < 2.0, f"{elapsed:.1f}s to place 7 loops"
 
 
 def _distance(p: Point, a: Point, b: Point) -> float:
@@ -431,7 +458,7 @@ def test_loop5_description(load) -> None:
         "its current is I1 plus I2."]
     short = alttext.generate(graph, "short", loops=True).splitlines()
     assert short[-1].startswith("The drawing marks 2 loop currents")
-    refused = alttext.generate(load("loops_seven.kicad_sch"), "short",
+    refused = alttext.generate(load("loops_crossing.kicad_sch"), "short",
                                loops=True)
     assert refused.splitlines()[-1].startswith("Loop currents are not shown")
 
@@ -469,16 +496,16 @@ def test_loop6_pipeline_reports_and_warns(fixtures_dir, tmp_path) -> None:
     assert "arc[" in shown.tikz_code
 
     refused = run_pipeline(PipelineOptions(
-        input_path=str(fixtures_dir / "loops_seven.kicad_sch"),
+        input_path=str(fixtures_dir / "loops_crossing.kicad_sch"),
         output_dir=str(tmp_path), dry_run=True, show_loops=True))
     assert refused.stats.loops == []
-    assert any(w.startswith("Loop currents are not drawn: the circuit has "
-                            "7 loops") for w in refused.warnings)
+    assert any(w.startswith("Loop currents are not drawn: the drawing "
+                            "crosses itself") for w in refused.warnings)
     assert any(s.startswith("Loop currents not drawn")
                for s in refused.stats.summary_lines())
 
     off = run_pipeline(PipelineOptions(
-        input_path=str(fixtures_dir / "loops_seven.kicad_sch"),
+        input_path=str(fixtures_dir / "loops_crossing.kicad_sch"),
         output_dir=str(tmp_path), dry_run=True))
     assert not any("Loop" in w for w in off.warnings)
     assert not any("Loop" in s for s in off.stats.summary_lines())

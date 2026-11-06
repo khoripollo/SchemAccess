@@ -35,7 +35,7 @@ labels/rails.
 | `loops_two.kicad_sch` | The textbook two-loop network: V1, R1/R3 along the top, R2 and R4 upright | Loop currents (`--loops`): i1 through V1, R1, R2 and i2 through R2, R3, R4, both clockwise, sharing R2 |
 | `loops_three.kicad_sch` | The same ladder, three windows | Three loop currents, numbered left to right |
 | `loops_grid.kicad_sch` | Four windows in a 2 x 2 grid round a four-way junction | Loop numbering row by row (I1, I2 on top; I3, I4 below), a bare branch and a bare rail |
-| `loops_seven.kicad_sch` | A seven-window ladder | One loop past the limit: no loop currents drawn, and the report says why |
+| `loops_seven.kicad_sch` | A seven-window ladder | More loops than fit the old cap of four: all seven drawn, numbered I1 to I7, and placed quickly enough that lifting the cap costs nothing |
 | `loops_crossing.kicad_sch` | The two-loop network plus a stray wire crossing a branch without a junction | A drawing that is not a flat map of its circuit: no loop currents drawn |
 | `loops_scattered_ground.kicad_sch` | The two-loop network closed by GND symbols not in one row | Loops that cannot be traced on the page: none drawn (GND symbols *in* a row, as in `rc_divider`, are read as a rail) |
 | `loops_two_sources.kicad_sch` | V1 down the left, V2 down the right, both + on top | A second source turns its loop the other way: i1 clockwise, i2 counterclockwise, i1 + i2 down R2 |

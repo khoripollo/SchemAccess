@@ -505,8 +505,8 @@ class MainWindow(QMainWindow):
             "For teaching mesh analysis: draws each loop current as an "
             "arrow in its window, turning the way its current flows, and "
             "describes the loops in the alt text. Works on flat circuits of "
-            "two-terminal parts with up to four loops; for any other circuit "
-            "the summary says why no loops were drawn.")
+            "two-terminal parts, however many loops they have; for any "
+            "other circuit the summary says why no loops were drawn.")
         self.loops_check.toggled.connect(self._on_option_toggled)
 
         self.switch_label = QLabel("S&witch style:", options_group)

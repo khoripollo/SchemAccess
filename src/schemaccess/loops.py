@@ -10,9 +10,7 @@ from typing import Dict, List, Optional, Sequence, Set, Tuple
 from .model import CircuitGraph, Component, ComponentType, Point, snap
 from .netlist import _spice_value
 
-__all__ = ["MAX_LOOPS", "Mesh", "MeshResult", "find_meshes", "same_way"]
-
-MAX_LOOPS = 4
+__all__ = ["Mesh", "MeshResult", "find_meshes", "same_way"]
 
 _EPS = 1e-3
 
@@ -195,14 +193,6 @@ def _where(p: Point) -> str:
     return f"near ({p[0]:.1f}, {p[1]:.1f}) mm"
 
 
-#: A net-connected circuit is looked at no further once its loop count
-#: passes this, which keeps a 200-part ladder from being taken apart face
-#: by face only to be refused.  It is deliberately well above MAX_LOOPS,
-#: because a circuit joined only through ground splits into smaller ones
-#: later and each of those may be well within the limit.
-_LOOP_CEILING = MAX_LOOPS * 4
-
-
 def _corner(spots: Sequence[Point]) -> Tuple[float, float]:
     """Top-left-most point, as a reading-order sort key."""
     return (min(p[1] for p in spots), min(p[0] for p in spots))
@@ -298,14 +288,6 @@ def find_meshes(graph: CircuitGraph) -> MeshResult:
                 f"{len(comp.pins)} pins, and loops are only drawn for "
                 f"circuits built from two-terminal parts")
             continue
-        count = _loop_count([tuple(pin.net_id for pin in _pins(comp))
-                             for comp in two])
-        if count > _LOOP_CEILING:
-            subject = f"{where}it has" if where else "the circuit has"
-            skipped.append(
-                f"{subject} {count} loops, and they are drawn for up to "
-                f"{MAX_LOOPS} so the picture stays readable")
-            continue
         # A circuit with no loop of its own is not a complaint: it is a
         # stray part or a chain, and the sheet may well have others.
         parts.extend(two)
@@ -361,12 +343,6 @@ def find_meshes(graph: CircuitGraph) -> MeshResult:
         # with; on an ordinary single-circuit sheet it is just noise.
         where = (f"the circuit with {_circuit_refs(refs)}: "
                  if many or len(groups) > 1 else "")
-        if len(members) > MAX_LOOPS:
-            subject = f"{where}it has" if where else "the circuit has"
-            skipped.append(
-                f"{subject} {len(members)} loops, and they are drawn for "
-                f"up to {MAX_LOOPS} so the picture stays readable")
-            continue
         senses, problem = _senses(graph, [windows[i] for i in members])
         if problem:
             skipped.append(f"{where}{problem}")
@@ -584,6 +560,32 @@ def _centroid(outline: List[Point]) -> Point:
     return (cx / (-6.0 * area), cy / (-6.0 * area))
 
 
+_Box = Tuple[float, float, float, float]        # left, right, top, bottom
+
+
+def _box(points: Sequence[Point]) -> _Box:
+    xs = [p[0] for p in points]
+    ys = [p[1] for p in points]
+    return min(xs), max(xs), min(ys), max(ys)
+
+
+def _boxes_meet(one: _Box, two: _Box) -> bool:
+    return not (one[1] < two[0] or two[1] < one[0]
+                or one[3] < two[2] or two[3] < one[2])
+
+
+def _box_gap(box: _Box, a: Point, b: Point) -> float:
+    """A lower bound on the distance from inside *box* to segment a-b.
+
+    Compared box to box, which never overstates the real distance - so
+    anything this calls far away really is far away.
+    """
+    left, right, top, bottom = box
+    across = max(left - max(a[0], b[0]), min(a[0], b[0]) - right, 0.0)
+    down = max(top - max(a[1], b[1]), min(a[1], b[1]) - bottom, 0.0)
+    return math.hypot(across, down)
+
+
 def _place(outline: List[Point], others: List[List[Point]],
            obstacles: List[_Obstacle]) -> Tuple[Point, float]:
     """Where the loop arrow goes inside its window, and its room there.
@@ -599,17 +601,30 @@ def _place(outline: List[Point], others: List[List[Point]],
     the arrow into whatever corner of the window happens to be emptiest,
     which is how it ended up tucked against a resistor on one side.
     """
-    xs = [p[0] for p in outline]
-    ys = [p[1] for p in outline]
-    left, right, top, bottom = min(xs), max(xs), min(ys), max(ys)
+    left, right, top, bottom = window = _box(outline)
     centre = _centroid(outline)
     enough = _MAX_RADIUS / _FILL
     fits = _MIN_RADIUS / _FILL      # room for the smallest arc drawn
 
+    # Only what is near this window can bear on the arrow inside it, and
+    # dropping the rest is exact rather than an approximation: an
+    # obstacle further off than the largest arc considered cannot pull
+    # the room below that arc, and the room is capped there anyway.  It
+    # is also what makes a circuit of many loops affordable.  The search
+    # below weighs every obstacle at every trial point, so measuring the
+    # whole sheet for every window costs windows x sheet - on a busy
+    # drawing that was a third of a second per window, which is why the
+    # loops used to be capped at four.
+    reach = enough + max((keep for _a, _b, keep in obstacles), default=0.0)
+    obstacles = [o for o in obstacles
+                 if _box_gap(window, o[0], o[1]) <= reach]
+    others = [o for o in others if _boxes_meet(window, _box(o))]
+
     def room_at(p: Point) -> float:
         if not _inside(p, outline) or any(_inside(p, o) for o in others):
             return -math.inf
-        return min(_distance(p, a, b) - keep for a, b, keep in obstacles)
+        return min((_distance(p, a, b) - keep for a, b, keep in obstacles),
+                   default=math.inf)
 
     def score(p: Point, room: float) -> Tuple[int, float]:
         # Anywhere the arrow fits, nearest the middle wins; nowhere it

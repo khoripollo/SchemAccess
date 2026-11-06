@@ -154,8 +154,9 @@ def build_parser() -> argparse.ArgumentParser:
         help="for teaching mesh analysis: draw each loop current (I1, I2, "
              "...) as an arrow in its window, turning the way its current "
              "flows, and describe the loops in the alt text.  Works on flat "
-             "circuits of two-terminal parts with up to 4 loops; any other "
-             "circuit is converted without them and a warning says why",
+             "circuits of two-terminal parts, however many loops they "
+             "have; any other circuit is converted without them and a "
+             "warning says why",
     )
     parser.add_argument(
         "--netlist",

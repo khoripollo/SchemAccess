@@ -152,13 +152,16 @@ kicad_parser -> netbuilder -> analyzer -> alttext
    pipeline when loop currents are asked for) finds the loop currents of
    mesh analysis on the drawing itself: wires and two-terminal parts are
    read as a plane graph and its bounded faces are the windows, each
-   given a loop i1, i2, ... placed where it has the most room. Each loop
-   turns the way its current flows -- from a DC solve of the mesh
-   equations when the circuit allows one, otherwise from the sources'
-   polarity -- and a circuit the loops cannot honestly be drawn on (more
-   than four loops, multi-pin parts, crossings, label joins, undecidable
-   directions) gets none, with a reason. As a failsafe the windows must
-   number exactly branches - nodes + pieces.
+   given a loop I1, I2, ... placed at its centre of area, or at the
+   nearest point with room when the centre has none. There is no cap on
+   how many: placement weighs only the obstacles near the window being
+   placed, which is what keeps a long ladder affordable. Each loop turns
+   the way its current flows -- from a DC solve of the mesh equations
+   when the circuit allows one, otherwise from the sources' polarity --
+   and a circuit the loops cannot honestly be drawn on (multi-pin parts,
+   crossings, label joins, undecidable directions) gets none, with a
+   reason. As a failsafe the windows must number exactly
+   branches - nodes + pieces.
 
 9. **`pdfwriter.py`** — writes the same drawing as a vector PDF, with no
    LaTeX and no third-party package: a few hundred lines of the PDF

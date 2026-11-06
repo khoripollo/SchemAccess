@@ -218,13 +218,18 @@ a circuit that cannot be meshed costs only itself, not the whole page.
 Two circuits that meet at nothing but a shared ground are two circuits:
 no loop can be traced through a single node.
 
-The loops are kept to circuits they read well on: flat circuits of
-two-terminal parts with two to four loops *each*, drawn with wires (ground
-symbols in one row count as a wire). A circuit that is anything else --
-more than four loops, an op amp or transistor, wires crossing without a
-junction, parts joined by net labels, no source, or sources whose
-directions cannot be told apart -- is converted as usual without them, and
-the report says which circuit was left out and why.
+**There is no limit on how many loops a circuit may have.** A ladder of
+twenty windows is labelled I1 to I20; every arrow in a circuit is drawn
+the same size, chosen so the tightest window still fits, and the arrows
+are drawn beneath the reference and value text so a label always reads
+over the top of one.
+
+What the loops do need is a circuit they can be traced on: a flat circuit
+of two-terminal parts, drawn with wires (ground symbols in one row count
+as a wire). A circuit that is anything else -- an op amp or transistor,
+wires crossing without a junction, parts joined by net labels, no source,
+or sources whose directions cannot be told apart -- is converted as usual
+without them, and the report says which circuit was left out and why.
 
 ## Netlists
 
