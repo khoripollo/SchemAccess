@@ -40,7 +40,6 @@ const els = {
   junctionDots: $("junction-dots"),
   showLoops: $("show-loops"),
   loopsNote: $("loops-note"),
-  showUnits: $("show-units"),
   switchStyle: $("switch-style"),
 };
 
@@ -77,7 +76,6 @@ const state = {
   source: null,
   junctionDots: true,
   showLoops: false,
-  showUnits: false,
   switchStyle: "default",
   contents: {},
   tab: "preview",
@@ -276,7 +274,7 @@ function runConversion(keepView = false) {
   try {
     payload = JSON.parse(
       state.driver.convert(path, state.junctionDots, state.showLoops,
-                           state.showUnits, state.switchStyle));
+                           state.switchStyle));
   } catch (error) {
     console.error(error);
     showFailure("The converter stopped unexpectedly.", String(error));
@@ -360,7 +358,6 @@ function showWorkspace() {
 function renderOptions() {
   els.junctionDots.checked = state.junctionDots;
   els.showLoops.checked = state.showLoops;
-  els.showUnits.checked = state.showUnits;
   els.switchStyle.value = state.switchStyle;
   const loops = state.result && state.showLoops ? state.result.loops : null;
   if (loops && loops.drawn.length) {
@@ -786,11 +783,6 @@ els.showLoops.addEventListener("change", () => {
   state.showLoops = els.showLoops.checked;
   if (!state.result) return;
   runConversion(true);
-});
-
-els.showUnits.addEventListener("change", () => {
-  state.showUnits = els.showUnits.checked;
-  if (state.result) runConversion(true);
 });
 
 els.switchStyle.addEventListener("change", () => {

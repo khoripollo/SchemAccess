@@ -60,7 +60,7 @@ def root_sheet(paths) -> str:
 
 
 def convert(path: str, junction_dots: bool = True,
-            loops: bool = False, units: bool = False,
+            loops: bool = False,
             switch_style: str = "default") -> str:
     global _LAST
     _LAST = {}
@@ -79,7 +79,11 @@ def convert(path: str, junction_dots: bool = True,
 
     started = time.perf_counter()
     fallbacks: set = set()
-    drawn = units_module.apply(graph) if units else graph
+    # Values are always drawn with their unit, as the desktop pipeline
+    # does: a resistor marked 100 is 100 ohms, the same way 10m on an
+    # inductor is 10 millihenries, and a drawing that says one but not
+    # the other is just inconsistent.
+    drawn = units_module.apply(graph)
     tex = circuitikz.generate(drawn, junction_dots=junction_dots,
                               fallbacks=fallbacks, loops=bool(loops),
                               switch_style=switch_style)
