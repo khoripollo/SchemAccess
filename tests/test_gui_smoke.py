@@ -135,6 +135,40 @@ def test_gui_shows_a_conversion_summary(window):
     assert "TR1" in text, "a component that did not convert must be named"
 
 
+def test_each_summary_row_is_spoken_whole(window):
+    """A screen reader reads one cell at a time.
+
+    Sighted readers take "Components" and "25" in together because they
+    sit side by side, but announced separately they are a label with no
+    number and a number with nothing to attach it to.  Both cells of a
+    row therefore carry the whole row as their accessible text, so it
+    reads "Components 25" whichever half the cursor lands on.
+    """
+    from PySide6.QtCore import Qt
+
+    from schemaccess.pipeline import ConversionStats
+
+    window._fill_summary(ConversionStats(
+        symbols=28, components=25, nets=46, nodes=11, drawn=24,
+        described=25, has_drawing=True, has_text=True))
+
+    table = window.summary_table
+    spoken = []
+    for row in range(table.rowCount()):
+        said = {table.item(row, col).data(Qt.AccessibleTextRole)
+                for col in (0, 1)}
+        assert len(said) == 1, f"row {row} announces two different things"
+        phrase = said.pop()
+        # The visible text is unchanged; only what is announced grew.
+        assert phrase == (f"{table.item(row, 0).text()} "
+                          f"{table.item(row, 1).text()}")
+        spoken.append(phrase)
+
+    assert spoken == ["Components 25", "Nodes 11", "Nets 46",
+                      "Converted to symbols 24 of 25",
+                      "Described in alt text 25 of 25"]
+
+
 def test_conversion_summary_omits_outputs_that_were_not_produced():
     """A text-only run must not claim '0 converted' for a drawing that was
     never requested."""

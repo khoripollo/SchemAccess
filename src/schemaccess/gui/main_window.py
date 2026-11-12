@@ -415,7 +415,14 @@ class MainWindow(QMainWindow):
             label = QTableWidgetItem(name)
             number = QTableWidgetItem(value)
             number.setTextAlignment(Qt.AlignRight | Qt.AlignVCenter)
+            # Both cells of a row say the whole row.  Sighted readers take
+            # "Components" and "7" in at once because they are side by
+            # side; a screen reader announces one cell at a time, so
+            # landing on either half alone gave "Components" with no
+            # number, or a bare "7" with nothing to attach it to.
+            spoken = f"{name} {value}"
             for item in (label, number):
+                item.setData(Qt.AccessibleTextRole, spoken)
                 item.setFlags(Qt.ItemIsEnabled)
             self.summary_table.setItem(row, 0, label)
             self.summary_table.setItem(row, 1, number)
