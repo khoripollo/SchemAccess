@@ -15,6 +15,8 @@ Provides:
 * ``KICAD_CLI`` / ``kicad_reference`` - KiCad's own command-line tool and a
   callable that exports a reference netlist with it, for the tests that
   check SchemAccess's netlists against KiCad's;
+* ``LCAPY_AVAILABLE`` - whether Lcapy is installed, for the tests that
+  load an exported Lcapy netlist with ``lcapy.Circuit``;
 * an autouse session fixture that regenerates ``big_200.kicad_sch`` with
   ``gen_big.py`` when it is missing;
 * registration of the ``slow`` marker.
@@ -23,6 +25,7 @@ Provides:
 from __future__ import annotations
 
 import glob
+import importlib.util
 import json
 import os
 import shutil
@@ -81,6 +84,12 @@ def _find_kicad_cli() -> Optional[str]:
 
 #: KiCad's command-line tool, or None (evaluated once, at collection time).
 KICAD_CLI: Optional[str] = _find_kicad_cli()
+
+#: True when Lcapy can be imported, so an exported Lcapy netlist can be
+#: handed to ``lcapy.Circuit`` itself.  Only looked for, never imported
+#: here: Lcapy brings SymPy with it and takes seconds to load, which every
+#: test run would pay whether or not it ran an Lcapy test.
+LCAPY_AVAILABLE: bool = importlib.util.find_spec("lcapy") is not None
 
 
 def _read_manifest() -> Dict[str, dict]:

@@ -16,6 +16,12 @@ __all__ = ["root_sheet", "convert", "build_zip", "version"]
 
 _LAST: dict = {}
 
+#: The netlists the page offers.  Named here rather than taken from
+#: ``netlist.FORMATS``: the page shows the notes of every format it is
+#: handed, so a format the library gains would otherwise put notes in the
+#: report about a file the page has no tab or download for.
+WEB_NETLISTS = ("spice", "kicad", "text", "csv")
+
 _MIME = {
     "tex": "application/x-tex",
     "cir": "text/plain",
@@ -96,7 +102,7 @@ def convert(path: str, junction_dots: bool = True,
 
     nets = {}
     notes = {}
-    for fmt in netlist.FORMATS:
+    for fmt in WEB_NETLISTS:
         result = netlist.generate(graph, fmt)
         nets[fmt] = result.text
         notes[fmt] = result.notes

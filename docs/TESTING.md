@@ -119,7 +119,8 @@ asserting behaviour rather than exact strings.
 
 | File | What it proves |
 | --- | --- |
-| `tests/test_netlist.py` | Every SPICE device line is re-read and its nodes compared against the circuit graph (NET-1), so a deck can never wire a component to the wrong net. Nothing is dropped silently: a component is either a device line or a comment *plus* a note (NET-2). Ground is node `0` and only ground is (NET-3). Diode and source polarity follow the pin names, not pin order (NET-6, NET-7). The KiCad export round-trips every `(reference, pin)` pair with consecutive net codes (NET-9 … NET-11). The CSV has exactly one row per connected pin, with embedded commas quoted (NET-14, NET-15). All four formats are byte-deterministic (DET-1). |
+| `tests/test_netlist.py` | Every SPICE device line is re-read and its nodes compared against the circuit graph (NET-1), so a deck can never wire a component to the wrong net. Nothing is dropped silently: a component is either a device line or a comment *plus* a note (NET-2). Ground is node `0` and only ground is (NET-3). Diode and source polarity follow the pin names, not pin order (NET-6, NET-7). The KiCad export round-trips every `(reference, pin)` pair with consecutive net codes (NET-9 … NET-11). The CSV has exactly one row per connected pin, with embedded commas quoted (NET-14, NET-15). All five formats are byte-deterministic (DET-1). |
+| `tests/test_lcapy_netlist.py` | Every line of the Lcapy netlist is re-read and its nodes compared against the circuit graph (LCAPY-1); a component is a line, or a comment *plus* a note (LCAPY-2). Ground is node `0` and only ground is (LCAPY-3), and every other node carries the number the alt text gives it (LCAPY-4). Every name reads, by Lcapy's own longest-prefix rule, as the type it was written to be, and no name is used twice (LCAPY-5, LCAPY-7). Values are exact plain numbers and a missing one is a symbol, never an invented number (LCAPY-6, LCAPY-9). A current source's nodes are in the opposite order to the SPICE deck's (LCAPY-8). Non-linear parts stay in the netlist and are flagged (LCAPY-11); an undriven supply rail and a circuit with no path to ground are reported (LCAPY-12, LCAPY-13). **With Lcapy installed**, `lcapy.Circuit` loads every fixture's netlist and each component is read back under the name written, as the type intended, on the nodes written (LCAPY-20); and Lcapy's resistor currents for the DC fixtures equal, exactly and sign for sign, the ones an independent nodal solver gets straight from the circuit graph (LCAPY-22) — the test that fails if a value, a wire or a source polarity is lost. |
 | `tests/test_pdfwriter.py` | The file is a structurally valid PDF: header, one page, a cross-reference table whose every offset lands on its own object, a `/Length` that matches the stream, and a `%%EOF` (PDF-1). The page is the drawing's bounding box in points (PDF-2). Every wire endpoint is painted, so the PDF cannot quietly lose part of the circuit (PDF-3). Path operators are balanced and every path is painted (PDF-4). Visible references reach the page as text, and the ohm sign switches to the Symbol font because Helvetica has no Omega (PDF-5) — the test that caught it being dropped. Output is byte-deterministic (DET-1). |
 | `tests/test_loops.py` | The textbook networks get exactly the loops a person would draw, parts listed in the loop's direction, numbered row by row (LOOP-1); a second source turns its loop the other way, a source in a shared branch splits its current, a current source follows its arrow. The loops found always number branches - nodes + pieces, worked out from the netlist alone (LOOP-2). Every circuit loops cannot honestly be drawn on is refused with a reason (LOOP-3). Each arrow sits inside its window, clear of every wire, part and other arrow (LOOP-4). All outputs are byte-identical with the option off, and carry the loops with it on, including a real pdflatex compile (LOOP-5). CLI, pipeline report and warning, GUI option, fixture generator (LOOP-6). The fonts the website's in-browser pdfTeX needs for the labels ship with it (LOOP-7). An independent nodal solve, fitted to loop currents, never finds a drawn loop running backwards (LOOP-8). |
 | `tests/test_power.py` | A user's file with an emptied Earth Value converts one-to-one: ground net, ground drawing, SPICE node `0`, no `~` anywhere, and the emptied name is reported (PWR-1). All twelve grounds of KiCad's power library are ground, named or emptied (PWR-2). Emptied symbols never short together and join their named twins (PWR-3). A `lib_name` alias still finds its definition (PWR-4). SPICE gives each net one node name that no other net shares, case-blind, and notes when there is no ground to simulate against (PWR-5). The report lists what each power symbol was read as (PWR-6). |
@@ -202,3 +203,43 @@ schemaccess --compare-net kicad/your.net --generated-net accessible/your.net
 ```
 
 See [Validating against KiCad](../README.md#validating-against-kicad).
+
+## Checking against Lcapy itself
+
+The Lcapy netlist is written by `schemaccess.lcapy_netlist`, which never
+imports Lcapy, so most of `tests/test_lcapy_netlist.py` runs on a bare
+machine: it re-reads the netlist against the circuit graph and applies
+Lcapy's naming rule to every name. That proves the exporter did what it
+meant to. It cannot prove Lcapy *agrees* — and Lcapy disagrees with SPICE
+in ways that are easy to get plausibly wrong (which way a current source
+points, what `22n` means, what a component called `RV1` is).
+
+So when Lcapy is installed the suite asks it:
+
+```
+python -m pip install lcapy          # or: python -m pip install -e .[lcapy]
+python -m pytest tests/test_lcapy_netlist.py -vv
+```
+
+- **Loading** (LCAPY-20): every fixture's netlist goes through
+  `lcapy.Circuit`, and each component is read back under the name written,
+  as the type intended, on the nodes written. Loading alone would not be
+  enough — Lcapy cheerfully loads a resistor it has taken for a
+  potentiometer.
+- **Solving** (LCAPY-22): for the fixtures made only of resistors and DC
+  sources, each resistor's current is found twice — by Lcapy from the
+  exported netlist, and by a small nodal solver in exact arithmetic that
+  reads the circuit graph directly and shares nothing with the exporter
+  but the value reader. They are compared as fractions, sign included.
+  Swapping a current source back to SPICE's node order makes every
+  current in `loops_current_source` disagree, which is how the test was
+  itself tested.
+- **Refusing**: a circuit the result flags as not analysable — a diode in
+  it, or two circuits on one sheet with no ground — is one Lcapy must
+  refuse, for that reason.
+- **The type table** (LCAPY-14): every component type the installed Lcapy
+  knows must be in `lcapy_netlist.LCAPY_TYPES`, so a new Lcapy type cannot
+  silently capture a reference that starts with its letters.
+
+These tests **skip**, rather than fail, when Lcapy is not installed; the
+ones that solve circuits carry `@pytest.mark.slow`.

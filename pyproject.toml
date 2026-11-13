@@ -23,6 +23,9 @@ dependencies = []
 [project.optional-dependencies]
 gui = ["PySide6>=6.6"]
 dev = ["pytest>=7.0"]
+# Not needed to *write* an Lcapy netlist - the exporter imports nothing -
+# only to load one: it turns on the tests that hand the result to Lcapy.
+lcapy = ["lcapy"]
 
 [project.scripts]
 schemaccess = "schemaccess.cli:main"

@@ -10,7 +10,9 @@ tests check it electrically rather than textually:
 * ground is node ``0`` everywhere, and nowhere else;
 * the KiCad netlist round-trips every (reference, pin) pair;
 * the CSV has exactly one row per connected pin;
-* identical inputs give byte-identical output in all four formats.
+* identical inputs give byte-identical output in every format.
+
+The Lcapy format has a module of its own, ``test_lcapy_netlist.py``.
 """
 
 from __future__ import annotations

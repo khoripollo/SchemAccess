@@ -26,8 +26,8 @@ from . import __version__, circuitikz, netcompare, netlist, pipeline
 #: Preferred, deterministic ordering for the "wrote:" report lines.
 _FILE_ORDER = ("alt_text", "tex", "pdf", "svg", "png",
                "pdf_preview", "svg_preview",
-               "netlist_spice", "netlist_kicad", "netlist_text",
-               "netlist_csv")
+               "netlist_spice", "netlist_kicad", "netlist_lcapy",
+               "netlist_text", "netlist_csv")
 
 _EPILOG = """\
 notes:

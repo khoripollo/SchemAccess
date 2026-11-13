@@ -25,8 +25,8 @@ component mappings.
         v                v                v                v
  +-------------+  +--------------+  +-------------+  +--------------+
  | analyzer.py |  | circuitikz.py|  | netlist.py  |  |svgpreview.py |
- | structure   |  | graph->LaTeX |  | graph->     |  | graph->SVG   |
- | detection   |  |              |  | SPICE/KiCad |  |      |       |
+ | structure   |  | graph->LaTeX |  | graph->SPICE|  | graph->SVG   |
+ | detection   |  |              |  | KiCad, Lcapy|  |      |       |
  +-------------+  +--------------+  +-------------+  +------|-------+
                                                             v
                                                      +--------------+
@@ -130,14 +130,30 @@ kicad_parser -> netbuilder -> analyzer -> alttext
    labelled rectangle whose pin stubs land on the true pin positions.
 
 7. **`netlist.py`** — `generate(graph, fmt)` formats the same electrical
-   graph as a SPICE deck, a KiCad `.net` S-expression, a readable net
-   table or a CSV pin table. It performs no analysis of its own and
-   never touches the filesystem. Devices SPICE cannot express without
-   information the schematic does not carry (switch controls, a
+   graph as a SPICE deck, a KiCad `.net` S-expression, an Lcapy netlist,
+   a readable net table or a CSV pin table. It performs no analysis of
+   its own and never touches the filesystem. Devices SPICE cannot express
+   without information the schematic does not carry (switch controls, a
    controlled source's control nodes, a transformer's inductances) are
    emitted as commented templates with their nodes filled in, and every
    such decision comes back in `NetlistResult.notes` — a component is
    never silently dropped or guessed at.
+
+   **`lcapy_netlist.py`** holds the Lcapy writer, reached through
+   `netlist.generate(graph, "lcapy")` like any other format and built on
+   `netlist.py`'s helpers (pin ordering, source and diode terminals, the
+   value reader). It is its own module because Lcapy's netlist only
+   looks like SPICE: a component's name fixes its type by longest
+   prefix, a missing value means a symbol, and a current source drives
+   current the opposite way. It imports nothing from Lcapy, so the
+   format adds no dependency. It returns an `LcapyNetlist` — a
+   `NetlistResult` that also records which net became which node, which
+   reference became which Lcapy name, which parts were left out, which
+   stop a linear analysis (non-linear parts, switches, a circuit with no
+   path to ground) and which symbols stand in for missing numbers. That
+   map is the seam for an analysis backend: a caller can decide whether
+   the circuit is solvable and report Lcapy's answers in the schematic's
+   own terms without parsing the text again.
 
 8. **`svgpreview.py`** — `generate(graph)` draws the circuit as a
    standalone SVG straight from the schematic's geometry, with no LaTeX
@@ -298,7 +314,9 @@ web/app.js      moves dropped files into Pyodide's filesystem, calls
 ```
 
 `driver.convert()` returns one JSON blob holding the drawing, the LaTeX,
-all four netlists, all three description lengths, the statistics and every
+the four netlists the page offers (SPICE, KiCad, text and CSV; the Lcapy
+netlist is a desktop and command-line export), all three description
+lengths, the statistics and every
 warning — the same values the desktop `ConversionStats` reports, produced
 by the same stages in the same order. Re-run `python web/build.py` after
 any change under `src/schemaccess`; see [web/README.md](web/README.md).

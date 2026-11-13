@@ -1,11 +1,11 @@
-"""Netlist export: circuit graph -> SPICE / KiCad / plain-text / CSV.
+"""Netlist export: circuit graph -> SPICE / KiCad / Lcapy / text / CSV.
 
 The :class:`~schemaccess.model.CircuitGraph` already holds everything a
 netlist needs -- every component with its type and value, and every net
 with the pins that landed on it -- so this module is a pure formatter.  It
 adds no analysis of its own and never touches the filesystem.
 
-Four formats are produced:
+Five formats are produced:
 
 ``spice``
     An ngspice/LTspice deck (``.cir``).  Ground becomes node ``0``, every
@@ -18,6 +18,13 @@ Four formats are produced:
     KiCad's own S-expression netlist (``.net``), the format
     ``Tools > Generate Netlist`` writes, so the result imports into the
     same tools a KiCad export would.
+
+``lcapy``
+    A netlist ``lcapy.Circuit`` loads, for symbolic linear analysis.  It
+    looks like SPICE and differs where it matters -- a name is also a
+    type, a missing value is a symbol, a current source points the other
+    way -- so it has its own writer, in :mod:`schemaccess.lcapy_netlist`,
+    which builds on the helpers here.
 
 ``text``
     A plain-text component/net table meant to be *read* -- by a person or
@@ -40,15 +47,20 @@ from .model import (CircuitGraph, Component, ComponentType, Net, NetKind,
                     PinConnection)
 
 __all__ = ["FORMATS", "FORMAT_NAMES", "EXTENSIONS", "NetlistResult",
-           "generate", "spice", "kicad", "text", "csv"]
+           "generate", "spice", "kicad", "lcapy", "text", "csv"]
 
 #: Format keys accepted by :func:`generate`, in presentation order.
-FORMATS: Tuple[str, ...] = ("spice", "kicad", "text", "csv")
+FORMATS: Tuple[str, ...] = ("spice", "kicad", "lcapy", "text", "csv")
 
 #: Filename suffix for each format, appended to the schematic's stem.
+#: Lcapy's own examples use ``.sch``, which is also what a KiCad 5
+#: schematic is called; writing one beside a KiCad project would look
+#: like part of it, so the Lcapy netlist is plain ``.txt``.  Lcapy loads
+#: a netlist from a file of any name.
 EXTENSIONS: Dict[str, str] = {
     "spice": ".cir",
     "kicad": ".net",
+    "lcapy": "_lcapy.txt",
     "text": "_netlist.txt",
     "csv": "_netlist.csv",
 }
@@ -57,6 +69,7 @@ EXTENSIONS: Dict[str, str] = {
 FORMAT_NAMES: Dict[str, str] = {
     "spice": "SPICE deck (ngspice / LTspice)",
     "kicad": "KiCad netlist",
+    "lcapy": "Lcapy netlist (symbolic analysis)",
     "text": "Readable net table",
     "csv": "Spreadsheet (CSV)",
 }
@@ -758,6 +771,25 @@ def csv(graph: CircuitGraph) -> NetlistResult:
 
 
 # ---------------------------------------------------------------------------
+# Lcapy
+# ---------------------------------------------------------------------------
+
+def lcapy(graph: CircuitGraph, *, title: str = "") -> NetlistResult:
+    """Return a netlist ``lcapy.Circuit`` loads, for symbolic analysis.
+
+    The writer lives in :mod:`schemaccess.lcapy_netlist` and is imported
+    here on first use: it is built on this module's helpers, so the
+    import can only run one way round at load time.  What comes back is
+    an :class:`~schemaccess.lcapy_netlist.LcapyNetlist`, which is a
+    :class:`NetlistResult` that also records how the schematic's nets
+    and references map onto Lcapy's nodes and names.
+    """
+    from .lcapy_netlist import generate as write_lcapy
+
+    return write_lcapy(graph, title=title)
+
+
+# ---------------------------------------------------------------------------
 # Dispatch
 # ---------------------------------------------------------------------------
 
@@ -768,6 +800,8 @@ def generate(graph: CircuitGraph, fmt: str = "spice",
         return spice(graph, **kwargs)
     if fmt == "kicad":
         return kicad(graph, **kwargs)
+    if fmt == "lcapy":
+        return lcapy(graph, **kwargs)
     if fmt == "text":
         return text(graph)
     if fmt == "csv":

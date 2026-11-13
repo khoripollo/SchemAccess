@@ -105,6 +105,52 @@ def test_gui_netlist_choice_reaches_the_pipeline(window):
     assert window.current_options().netlist_formats == ("all",)
 
 
+def test_gui_offers_every_netlist_format(window):
+    """The menu and the exporters cannot drift apart.
+
+    The choices are written out by hand in the GUI, so a format added to
+    the library does not appear in the menu by itself - and "All" has to
+    go on meaning all of them, in words as well as in effect.
+    """
+    from schemaccess import netlist
+
+    combo = window.netlist_combo
+    offered = [combo.itemData(i) for i in range(combo.count())]
+    assert offered == [""] + list(netlist.FORMATS) + ["all"]
+    words = {4: "four", 5: "five", 6: "six"}[len(netlist.FORMATS)]
+    assert combo.itemText(combo.findData("all")) == f"All {words}"
+    assert f"all {words}" in combo.accessibleDescription()
+
+
+def test_gui_lcapy_netlist_is_written(window, tmp_path):
+    """Choosing Lcapy in the menu writes an Lcapy netlist.
+
+    Driven through the same options the Generate button builds, so this
+    is the GUI's own path to the file rather than the library's.
+    """
+    from pathlib import Path
+
+    from schemaccess.pipeline import run_pipeline
+
+    fixture = Path(__file__).parent / "fixtures" / "rc_divider.kicad_sch"
+    combo = window.netlist_combo
+    assert combo.itemText(combo.findData("lcapy")) == "Lcapy (.txt)"
+    assert "Lcapy" in combo.accessibleDescription()
+
+    window.input_edit.setText(str(fixture))
+    window.output_edit.setText(str(tmp_path))
+    combo.setCurrentIndex(combo.findData("lcapy"))
+    options = window.current_options()
+    assert options.netlist_formats == ("lcapy",)
+
+    options.generate_image = False      # no LaTeX needed for a netlist
+    result = run_pipeline(options)
+    assert not result.errors
+    written = Path(result.output_files["netlist_lcapy"])
+    assert written.name == "rc_divider_lcapy.txt"
+    assert "V1 1 0 dc 5" in written.read_text(encoding="utf-8")
+
+
 def test_gui_shows_a_conversion_summary(window):
     """The results area reports counts in and counts converted."""
     from schemaccess.pipeline import ConversionStats

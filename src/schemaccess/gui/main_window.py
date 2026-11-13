@@ -61,8 +61,9 @@ DETAIL_VALUES = {"Short": "short", "Standard": "standard",
                  "Detailed": "detailed"}
 
 NETLIST_CHOICES = (("None", ""), ("SPICE (.cir)", "spice"),
-                   ("KiCad (.net)", "kicad"), ("Text table (.txt)", "text"),
-                   ("CSV (.csv)", "csv"), ("All four", "all"))
+                   ("KiCad (.net)", "kicad"), ("Lcapy (.txt)", "lcapy"),
+                   ("Text table (.txt)", "text"), ("CSV (.csv)", "csv"),
+                   ("All five", "all"))
 
 #: Chicago Maroon, Virginia Tech's primary colour: RGB 134, 31, 65.
 #: White on it is 9.2:1 contrast, so the accent is only ever used behind
@@ -548,9 +549,10 @@ class MainWindow(QMainWindow):
             self.netlist_combo.addItem(label, key)
         self.netlist_combo.setAccessibleName("Netlists")
         self.netlist_combo.setAccessibleDescription(
-            "Also write a netlist: a SPICE deck, a KiCad netlist, a "
-            "readable net table, a CSV with one row per pin, or all four. "
-            "None writes no netlist.")
+            "Also write a netlist: a SPICE deck, a KiCad netlist, an Lcapy "
+            "netlist for symbolic circuit analysis, a readable net table, "
+            "a CSV with one row per pin, or all five. None writes no "
+            "netlist.")
         self.netlist_label.setBuddy(self.netlist_combo)
         self.netlist_combo.currentIndexChanged.connect(self._on_option_toggled)
 
