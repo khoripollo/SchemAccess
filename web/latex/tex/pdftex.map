@@ -883,6 +883,11 @@ t5-lmvtl10 LMMonoPropLt10-Regular " enclmt5 ReEncodeFont " <lm-t5.enc <lmvtl10.p
 t5-lmvtlo10 LMMonoPropLt10-Oblique " enclmt5 ReEncodeFont " <lm-t5.enc <lmvtlo10.pfb
 t5-lmvtt10 LMMonoProp10-Regular " enclmt5 ReEncodeFont " <lm-t5.enc <lmvtt10.pfb
 t5-lmvtto10 LMMonoProp10-Oblique " enclmt5 ReEncodeFont " <lm-t5.enc <lmvtto10.pfb
+tcrm0500 SFRM0500 "TS1Encoding ReEncodeFont" <cm-super-ts1.enc <sfrm0500.pfb
+tcrm0600 SFRM0600 "TS1Encoding ReEncodeFont" <cm-super-ts1.enc <sfrm0600.pfb
+tcrm0700 SFRM0700 "TS1Encoding ReEncodeFont" <cm-super-ts1.enc <sfrm0700.pfb
+tcrm0900 SFRM0900 "TS1Encoding ReEncodeFont" <cm-super-ts1.enc <sfrm0900.pfb
+tcrm1000 SFRM1000 "TS1Encoding ReEncodeFont" <cm-super-ts1.enc <sfrm1000.pfb
 texnansi-lmb10 LMRomanDemi10-Regular " enclmtexnansi ReEncodeFont " <lm-texnansi.enc <lmb10.pfb
 texnansi-lmbo10 LMRomanDemi10-Oblique " enclmtexnansi ReEncodeFont " <lm-texnansi.enc <lmbo10.pfb
 texnansi-lmbx10 LMRoman10-Bold " enclmtexnansi ReEncodeFont " <lm-texnansi.enc <lmbx10.pfb

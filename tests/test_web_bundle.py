@@ -27,12 +27,13 @@ import os
 import subprocess
 import tempfile
 from pathlib import Path
-from typing import Set
+from typing import List, Set
 
 import pytest
 
 from conftest import LATEX_AVAILABLE
-from schemaccess import circuitikz
+from schemaccess import circuitikz, units
+from schemaccess.model import CircuitGraph, SchematicDocument
 
 BUNDLE = Path(__file__).resolve().parent.parent / "web" / "latex" / "tex"
 
@@ -44,9 +45,11 @@ SPREAD = ["rc_divider.kicad_sch", "opamp_inverting.kicad_sch",
           "led_battery.kicad_sch", "loops_grid.kicad_sch"]
 
 #: Files the engine asks for that are the job's own, or that it probes
-#: for and does without.
+#: for and does without.  ``texmf.cnf`` and ``texfonts.map`` are the
+#: local TeX Live's own configuration, which the browser engine has none
+#: of.
 IGNORED = {"main.tex", "main.aux", "main.log", "main.fls", "main.out",
-           "pdflatex.fmt", "texput.log"}
+           "pdflatex.fmt", "texput.log", "texmf.cnf", "texfonts.map"}
 
 
 def mirrored() -> Set[str]:
@@ -89,46 +92,87 @@ def test_the_preamble_has_not_grown_a_package_nobody_mirrored(load) -> None:
             f"{package}.sty or .cls")
 
 
-@pytest.mark.slow
-@pytest.mark.skipif(not LATEX_AVAILABLE,
-                    reason="pdflatex is not available on PATH")
-@pytest.mark.parametrize("name", SPREAD)
-def test_every_file_a_drawing_opens_is_mirrored(name: str, load) -> None:
-    """Compile for real and insist the mirror could have served it all.
+def absent_from_mirror(tex: str) -> List[str]:
+    """Compile *tex* for real and list what the mirror could not serve.
 
     ``-recorder`` makes pdfTeX write a .fls naming every file it opened,
     which is exactly the set the browser would have to fetch.
     """
     have = mirrored()
-    graph = load(name)
+    with tempfile.TemporaryDirectory() as work:
+        Path(work, "main.tex").write_text(tex, encoding="utf-8")
+        subprocess.run(
+            ["pdflatex", "-recorder", "-interaction=nonstopmode",
+             "-halt-on-error", "main.tex"],
+            cwd=work, capture_output=True, timeout=300)
+        fls = Path(work, "main.fls")
+        assert fls.is_file(), "pdflatex wrote no .fls"
+
+        opened = set()
+        for line in fls.read_text(encoding="utf-8",
+                                  errors="replace").splitlines():
+            if not line.startswith("INPUT "):
+                continue
+            full = line[6:].strip()
+            if full.lower().startswith(work.lower()):
+                continue
+            base = os.path.basename(full).lower()
+            # A .pk is a bitmap the local install generated for want
+            # of an outline; the browser never asks for one.
+            if base in IGNORED or base.endswith(".pk"):
+                continue
+            opened.add(base)
+    return sorted(n for n in opened if n not in have)
+
+
+@pytest.mark.slow
+@pytest.mark.skipif(not LATEX_AVAILABLE,
+                    reason="pdflatex is not available on PATH")
+@pytest.mark.parametrize("name", SPREAD)
+def test_every_file_a_drawing_opens_is_mirrored(name: str, load) -> None:
+    """Compile each fixture the way web/driver.py does, units and all."""
+    graph = units.apply(load(name))
     for loops in (False, True):
-        tex = circuitikz.generate(graph, loops=loops)
-        with tempfile.TemporaryDirectory() as work:
-            Path(work, "main.tex").write_text(tex, encoding="utf-8")
-            subprocess.run(
-                ["pdflatex", "-recorder", "-interaction=nonstopmode",
-                 "-halt-on-error", "main.tex"],
-                cwd=work, capture_output=True, timeout=300)
-            fls = Path(work, "main.fls")
-            assert fls.is_file(), f"{name}: pdflatex wrote no .fls"
+        absent = absent_from_mirror(circuitikz.generate(graph, loops=loops))
+        assert not absent, (
+            f"{name} (loops={loops}) needs files the browser bundle "
+            f"cannot serve: {', '.join(absent)}. Copy them into "
+            f"web/latex/tex (metrics without the .tfm extension).")
 
-            opened = set()
-            for line in fls.read_text(encoding="utf-8",
-                                      errors="replace").splitlines():
-                if not line.startswith("INPUT "):
-                    continue
-                full = line[6:].strip()
-                if full.lower().startswith(work.lower()):
-                    continue
-                base = os.path.basename(full).lower()
-                # A .pk is a bitmap the local install generated for want
-                # of an outline; the browser never asks for one.
-                if base in IGNORED or base.endswith(".pk"):
-                    continue
-                opened.add(base)
 
-            absent = sorted(n for n in opened if n not in have)
-            assert not absent, (
-                f"{name} (loops={loops}) needs files the browser bundle "
-                f"cannot serve: {', '.join(absent)}. Copy them into "
-                f"web/latex/tex (metrics without the .tfm extension).")
+@pytest.mark.slow
+@pytest.mark.skipif(not LATEX_AVAILABLE,
+                    reason="pdflatex is not available on PATH")
+def test_every_size_and_symbol_a_label_can_use_is_mirrored() -> None:
+    """Every text size the generator sets labels in, holding every unit,
+    prefix and escaped character it can emit.
+
+    The fixtures alone missed this: a \\micro in a value pulls in the
+    TS1 text-companion font, and math or a unit inside \\small or
+    \\tiny text loads the 5, 6 and 9 pt faces - none of which were
+    mirrored, so such a schematic could not render in the browser.
+    """
+    quantities = " ".join(
+        r"\SI{1.5}{%s%s}" % (prefix, unit)
+        for prefix in units._SI_PREFIX.values()
+        for unit in units._SI_UNIT.values())
+    characters = "".join(text for ch, text in circuitikz._CHAR_MAP.items()
+                         if ch not in "\n\r\t")
+    contents = ("Ab 0123 xyz", characters, quantities,
+                r"$I_{12}$ $V_{out}^{2}$")
+    nodes = [r"\node[font=%s, anchor=west] at (0,%d) {%s};" % (size, -row, text)
+             for row, (size, text) in enumerate(
+                 (size, text)
+                 for size in (r"\tiny", r"\scriptsize", r"\small",
+                              r"\normalsize")
+                 for text in contents)]
+    preamble = circuitikz.generate(CircuitGraph(document=SchematicDocument()))
+    head = preamble[:preamble.index(r"\begin{circuitikz}")]
+    tex = "\n".join([head + r"\begin{circuitikz}[american]", *nodes,
+                     r"\end{circuitikz}", r"\end{document}", ""])
+    absent = absent_from_mirror(tex)
+    assert not absent, (
+        f"labels need files the browser bundle cannot serve: "
+        f"{', '.join(absent)}. Copy them into web/latex/tex (metrics "
+        f"without the .tfm extension, with a pdftex.map line for any new "
+        f"outline font).")
