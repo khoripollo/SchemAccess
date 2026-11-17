@@ -235,8 +235,11 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
         analysis.structures.append(Structure("series", desc, list(order), nets))
 
     # ------------------------------------------------------------------
-    # Voltage dividers: two resistors from a driven net to ground with a
-    # tapped midpoint.
+    # Voltage dividers: resistors from a driven net down to a midpoint and
+    # on to ground, with the output at the midpoint.  Either arm may be
+    # several resistors in parallel, so the arms are gathered whole and
+    # each divider is described once: R1 over R2 || R3 is one divider,
+    # not "R1 and R2" plus "R1 and R3".
     # ------------------------------------------------------------------
     resistors = sorted(
         (r for r in two_term
@@ -244,6 +247,19 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
         key=_ref_key)
     net_degree = {net.net_id: len(net.pins) for net in graph.nets}
 
+    def arm(net_x: int, net_y: int) -> List[str]:
+        """Every resistor joining *net_x* and *net_y*, in reference order."""
+        return [r for r in pair_members.get((min(net_x, net_y),
+                                             max(net_x, net_y)), [])
+                if graph.components[r].ctype == ComponentType.RESISTOR]
+
+    def arm_phrase(refs: List[str], capital: bool) -> str:
+        if len(refs) == 1:
+            return refs[0]
+        return (f"{'The' if capital else 'the'} parallel combination of "
+                f"{_join(refs)}")
+
+    described: Set[Tuple[int, int, int]] = set()
     for i, ref_a in enumerate(resistors):
         for ref_b in resistors[i + 1:]:
             shared = set(two_term[ref_a]) & set(two_term[ref_b])
@@ -252,20 +268,26 @@ def analyze(graph: CircuitGraph) -> CircuitAnalysis:
             mid = shared.pop()
             other_a = [n for n in two_term[ref_a] if n != mid][0]
             other_b = [n for n in two_term[ref_b] if n != mid][0]
-            for top_ref, top, bot_ref, bot in (
-                    (ref_a, other_a, ref_b, other_b),
-                    (ref_b, other_b, ref_a, other_a)):
+            for top, bot in ((other_a, other_b), (other_b, other_a)):
                 if (top in drive_ids and top not in ground_ids
                         and bot in ground_ids):
-                    tapped = (net_degree.get(mid, 0) >= 3
-                              or graph.nets[mid].kind == NetKind.NAMED)
-                    if tapped:
-                        desc = (f"{top_ref} and {bot_ref} form a voltage "
-                                f"divider between {nname(top)} and ground, "
-                                f"with the output tapped at {nname(mid)}.")
+                    has_output = (net_degree.get(mid, 0) >= 3
+                                  or graph.nets[mid].kind == NetKind.NAMED)
+                    if has_output and (top, mid, bot) not in described:
+                        described.add((top, mid, bot))
+                        upper, lower = arm(top, mid), arm(mid, bot)
+                        where = (f"between {nname(top)} and ground, "
+                                 f"with the output at {nname(mid)}.")
+                        if len(upper) == 1 and len(lower) == 1:
+                            desc = (f"{upper[0]} and {lower[0]} form a "
+                                    f"voltage divider {where}")
+                        else:
+                            desc = (f"{arm_phrase(upper, True)} forms a "
+                                    f"voltage divider with "
+                                    f"{arm_phrase(lower, False)}, {where}")
                         analysis.structures.append(Structure(
                             "voltage_divider", desc,
-                            [top_ref, bot_ref], [top, mid, bot]))
+                            upper + lower, [top, mid, bot]))
                     break
 
     # ------------------------------------------------------------------

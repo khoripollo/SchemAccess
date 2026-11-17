@@ -465,7 +465,7 @@ over — once per component, once per node:
 
 ```
 Detected structures:
-R1 and R2 form a voltage divider between node 1 and ground, with the output tapped at node 2.
+R1 and R2 form a voltage divider between node 1 and ground, with the output at node 2.
 R1 and C1 form an RC low-pass filter with input at node 1 and output at node 2.
 Connections by component:
 V1: pin 1 (+) to node 1; pin 2 (-) to ground.

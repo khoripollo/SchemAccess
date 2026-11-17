@@ -57,6 +57,91 @@ def test_fun6_rc_divider_detailed_mentions_structures(load) -> None:
     assert "Connections by component:" in text
 
 
+# ---------------------------------------------------------------------------
+# Voltage dividers with parallel arms
+# ---------------------------------------------------------------------------
+#
+# The detector used to pair resistors one at a time, so R1 over R2 || R3
+# came out as two dividers, "R1 and R2" and "R1 and R3", each "tapped" at
+# the same node.  A listener cannot tell from that that R2 and R3 share
+# the lower arm.  Each arm is now gathered whole and the divider stated
+# once.
+
+def _divider_graph(upper, lower):
+    """V1 driving *upper* resistors from its + node to a midpoint and
+    *lower* resistors from the midpoint to ground."""
+    from schemaccess.model import (CircuitGraph, Component, ComponentType,
+                                   Net, PinConnection)
+    graph = CircuitGraph()
+    graph.nets = [Net(net_id=0, name="GND", kind=NetKind.GROUND),
+                  Net(net_id=1, name="TOP"), Net(net_id=2, name="MID")]
+
+    def add(ref, ctype, lib_id, net_a, net_b):
+        comp = Component(ref=ref, ctype=ctype, value="1k", lib_id=lib_id,
+                         position=(0.0, 0.0))
+        for number, net_id in (("1", net_a), ("2", net_b)):
+            comp.pins[number] = PinConnection(
+                number=number, name="~", position=(0.0, 0.0), net_id=net_id)
+            graph.nets[net_id].pins.append((ref, number))
+        graph.components[ref] = comp
+
+    add("V1", ComponentType.VOLTAGE_SOURCE, "Simulation_SPICE:VDC", 1, 0)
+    for ref in upper:
+        add(ref, ComponentType.RESISTOR, "Device:R", 1, 2)
+    for ref in lower:
+        add(ref, ComponentType.RESISTOR, "Device:R", 2, 0)
+    return graph
+
+
+def _dividers(graph):
+    return [s for s in analyzer.analyze(graph).structures
+            if s.kind == "voltage_divider"]
+
+
+def test_divider_with_a_parallel_lower_arm_is_one_sentence() -> None:
+    graph = _divider_graph(["R1"], ["R2", "R3"])
+    names = node_names(graph)
+    found = _dividers(graph)
+    assert len(found) == 1, [s.description for s in found]
+    assert found[0].description == (
+        f"R1 forms a voltage divider with the parallel combination of R2 "
+        f"and R3, between {names[1]} and ground, with the output at "
+        f"{names[2]}.")
+    assert found[0].refs == ["R1", "R2", "R3"]
+    assert found[0].description in alttext.generate(graph, "detailed")
+
+
+def test_divider_with_a_parallel_upper_arm_is_one_sentence() -> None:
+    graph = _divider_graph(["R1", "R2"], ["R3"])
+    names = node_names(graph)
+    found = _dividers(graph)
+    assert len(found) == 1, [s.description for s in found]
+    assert found[0].description == (
+        f"The parallel combination of R1 and R2 forms a voltage divider "
+        f"with R3, between {names[1]} and ground, with the output at "
+        f"{names[2]}.")
+
+
+def test_divider_with_both_arms_parallel_is_one_sentence() -> None:
+    found = _dividers(_divider_graph(["R1", "R2"], ["R3", "R4", "R5"]))
+    assert len(found) == 1, [s.description for s in found]
+    assert found[0].description.startswith(
+        "The parallel combination of R1 and R2 forms a voltage divider with "
+        "the parallel combination of R3, R4 and R5, between ")
+
+
+def test_two_resistor_divider_names_the_output_plainly(load) -> None:
+    text = alttext.generate(load("rc_divider.kicad_sch"), "detailed")
+    assert ("R1 and R2 form a voltage divider between node 1 and ground, "
+            "with the output at node 2.") in text
+
+
+@pytest.mark.parametrize("name", VALID_FIXTURES)
+def test_no_description_says_tapped(name: str, load) -> None:
+    """'Tapped' is jargon the description no longer uses."""
+    assert "tapped" not in alttext.generate(load(name), "detailed")
+
+
 @pytest.mark.parametrize("level", DETAIL_LEVELS)
 @pytest.mark.parametrize("name", VALID_FIXTURES)
 def test_rel3_alt_text_determinism(name: str, level: str) -> None:
