@@ -347,7 +347,7 @@ function showWorkspace() {
   els.reset.hidden = false;
   els.tagline.hidden = true;
   els.filename.textContent = result.source;
-  document.title = `${result.source} — KiCad to Netlist`;
+  document.title = `${result.source} — KiCad to LaTeX`;
 
   renderStatus();
   renderFileList();
@@ -719,7 +719,7 @@ els.reset.addEventListener("click", () => {
   els.filechip.hidden = true;
   els.reset.hidden = true;
   els.tagline.hidden = false;
-  document.title = "KiCad to Netlist";
+  document.title = "KiCad to LaTeX";
   setBoot("", "ready");
 });
 
